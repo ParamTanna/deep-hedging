@@ -1,0 +1,8 @@
+# raw prices are downloaded by `python src/experiments.py prepare`, not redistributed
+data/raw/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+results/logs/
+results/train_all.log
+tests/lab_fixture.json
