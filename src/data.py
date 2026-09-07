@@ -32,7 +32,8 @@ def fetch(symbol: str, start: str = "2000-01-01", end: str | None = None,
         return pd.read_csv(path, parse_dates=["date"])
 
     p1 = int(pd.Timestamp(start, tz="UTC").timestamp())
-    p2 = int(pd.Timestamp(end or pd.Timestamp.utcnow().normalize(), tz="UTC").timestamp())
+    p2 = int((pd.Timestamp(end, tz="UTC") if end else
+              pd.Timestamp.now(tz="UTC").normalize()).timestamp())
     r = requests.get(CHART.format(sym=SYMBOLS[symbol]),
                      params={"period1": p1, "period2": p2, "interval": "1d",
                              "events": "div,split"},
