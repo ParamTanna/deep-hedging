@@ -85,3 +85,54 @@ def log_returns(df: pd.DataFrame) -> pd.Series:
     date, which would inflate our volatility estimate.
     """
     return np.log(df["adjclose"]).diff().dropna()
+
+
+def acf(x: np.ndarray, nlags: int = 20) -> np.ndarray:
+    """Sample autocorrelation, computed directly from the definition.
+
+    rho_k = sum_t (x_t - xbar)(x_{t+k} - xbar) / sum_t (x_t - xbar)^2
+    """
+    x = np.asarray(x, float)
+    x = x - x.mean()
+    denom = (x ** 2).sum()
+    return np.array([1.0 if k == 0 else (x[:-k] * x[k:]).sum() / denom
+                     for k in range(nlags + 1)])
+
+
+def ljung_box(x: np.ndarray, nlags: int = 20) -> tuple[float, int]:
+    """Ljung-Box Q statistic for 'all autocorrelations up to nlags are zero'.
+
+    Q = n(n+2) * sum_{k=1..h} rho_k^2 / (n - k),  which is chi-square(h) under
+    the null. We return Q and its degrees of freedom; the caller compares it to
+    a chi-square critical value. Implemented here rather than imported so the
+    formula is visible.
+    """
+    x = np.asarray(x, float)
+    n = len(x)
+    r = acf(x, nlags)[1:]
+    q = n * (n + 2) * np.sum(r ** 2 / (n - np.arange(1, nlags + 1)))
+    return float(q), nlags
+
+
+def describe_returns(r: np.ndarray, periods_per_year: int = 252) -> dict:
+    """The summary statistics that actually matter for a hedging simulator."""
+    r = np.asarray(r, float)
+    n = len(r)
+    m, s = r.mean(), r.std(ddof=1)
+    skew = ((r - m) ** 3).mean() / s ** 3
+    kurt = ((r - m) ** 4).mean() / s ** 4 - 3.0           # excess kurtosis
+    q_ret, _ = ljung_box(r, 20)
+    q_abs, _ = ljung_box(np.abs(r), 20)
+    return {
+        "n_days": n,
+        "mean_daily": float(m),
+        "sd_daily": float(s),
+        "annualised_vol": float(s * np.sqrt(periods_per_year)),
+        "annualised_drift": float(m * periods_per_year),
+        "skewness": float(skew),
+        "excess_kurtosis": float(kurt),
+        "ljung_box_returns_20": float(q_ret),
+        "ljung_box_abs_returns_20": float(q_abs),
+        "worst_day": float(r.min()),
+        "best_day": float(r.max()),
+    }
