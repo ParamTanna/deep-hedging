@@ -50,3 +50,38 @@ def fetch(symbol: str, start: str = "2000-01-01", end: str | None = None,
     if cache:
         df.to_csv(path, index=False)
     return df
+
+
+# ----------------------------------------------------------------------------
+# quality checks
+# ----------------------------------------------------------------------------
+
+def clean(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Drop rows that cannot produce a valid log return, and report what went.
+
+    Order matters: we sort first, then drop duplicate dates (keeping the last
+    quote for a day), then drop rows with a missing or non-positive adjusted
+    close. A zero or negative price makes log(price) undefined, so those rows
+    cannot be imputed sensibly and are removed rather than filled.
+    """
+    n0 = len(df)
+    df = df.sort_values("date").reset_index(drop=True)
+    dup = int(df["date"].duplicated().sum())
+    df = df.drop_duplicates("date", keep="last")
+    bad = int((df["adjclose"].isna() | (df["adjclose"] <= 0)).sum())
+    df = df[df["adjclose"].notna() & (df["adjclose"] > 0)].reset_index(drop=True)
+    rep = {"rows_downloaded": n0, "duplicate_dates_dropped": dup,
+           "nonpositive_or_missing_close_dropped": bad, "rows_kept": len(df),
+           "first_date": str(df["date"].iloc[0].date()),
+           "last_date": str(df["date"].iloc[-1].date())}
+    return df, rep
+
+
+def log_returns(df: pd.DataFrame) -> pd.Series:
+    """r_t = log(P_t / P_{t-1}) on the adjusted close.
+
+    Adjusted close is used because it folds dividends and splits back into the
+    price. A raw close would show a fake overnight crash on every ex-dividend
+    date, which would inflate our volatility estimate.
+    """
+    return np.log(df["adjclose"]).diff().dropna()
