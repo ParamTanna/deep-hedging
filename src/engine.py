@@ -107,3 +107,45 @@ def pnl(S: torch.Tensor, holdings: torch.Tensor, K: float, cost_bps: float,
     payoff = torch.clamp(ST - K, min=0.0)
     total = premium + cash - payoff
     return total, cost, turnover
+
+
+# ---------------------------------------------------------------- risk measures
+
+def cvar(x: torch.Tensor, alpha: float = 0.95) -> torch.Tensor:
+    """CVaR of the LOSS side of x, reported as a signed P&L number.
+
+    x is profit and loss, so the bad tail is the LOW end. We take the worst
+    (1 - alpha) fraction and average it. The result is negative when the tail
+    is a loss, which keeps every number in the tables in the same units and
+    the same sign convention as mean P&L.
+
+    Differentiable: torch.topk is differentiable in its values, and the
+    gradient flows only through the selected tail, which is exactly the
+    behaviour we want. The cost is that a batch of B paths yields only
+    (1 - alpha) * B effective samples per step, which is why CVaR training
+    needs large batches.
+    """
+    n = max(1, int(round((1.0 - alpha) * x.numel())))
+    worst = torch.topk(x, n, largest=False).values
+    return worst.mean()
+
+
+def metrics(total: torch.Tensor, cost: torch.Tensor, turnover: torch.Tensor,
+            n_trades: torch.Tensor | None = None, alpha: float = 0.95) -> dict:
+    t = total.detach().double()
+    out = {
+        "cvar95": float(cvar(t, alpha)),
+        "mean": float(t.mean()),
+        "std": float(t.std(unbiased=True)),
+        "var95": float(torch.quantile(t, 1.0 - alpha)),
+        "p05": float(torch.quantile(t, 0.05)),
+        "p50": float(torch.quantile(t, 0.50)),
+        "p95": float(torch.quantile(t, 0.95)),
+        "worst": float(t.min()),
+        "mean_cost": float(cost.detach().mean()),
+        "mean_turnover": float(turnover.detach().mean()),
+        "n_paths": int(t.numel()),
+    }
+    if n_trades is not None:
+        out["mean_trades"] = float(n_trades.detach().double().mean())
+    return out
