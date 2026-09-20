@@ -68,7 +68,7 @@ def main():
     tu, _, _ = engine.pnl(Sx, st.unhedged(Sx, N), K, 0.0, PREM)
     print("\n4. unhedged CVaR %9.4f  vs  delta CVaR %9.4f"
           % (float(engine.cvar(tu)), float(engine.cvar(tot))))
-    ok &= engine.cvar(tu) < engine.cvar(tot)
+    ok &= bool(engine.cvar(tu) < engine.cvar(tot))
 
     # ---- 5. a zero-width band must reproduce plain delta exactly
     hb, _ = st.band(Sx, K, T, SIG, N, 0.0)
