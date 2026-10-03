@@ -190,3 +190,101 @@ def calibrate_heston(r, periods_per_year=TRADING_DAYS, seed=0, n_rep=24, verbose
               "moment_names": ["ann_vol", "excess_kurtosis", "skewness",
                                "acf1_r2", "acf5_r2"]})
     return p
+
+
+# ---------------------------------------------------------------- horizon calibration
+
+def _rolling_std(r, w):
+    """Std of r[i : i + w] for every i, via cumulative sums (ddof = 1)."""
+    c1 = np.concatenate([[0.0], np.cumsum(r)])
+    c2 = np.concatenate([[0.0], np.cumsum(r * r)])
+    s1 = c1[w:] - c1[:-w]
+    s2 = c2[w:] - c2[:-w]
+    var = (s2 - s1 * s1 / w) / (w - 1)
+    return np.sqrt(np.maximum(var, 0.0))
+
+
+def horizon_stats(r, hist=60, steps=30, periods_per_year=TRADING_DAYS):
+    """Statistics of the volatility SURPRISE at the hedging horizon.
+
+    For every window: quoted vol = std of the `hist` returns before inception,
+    realised vol = std of the `steps` returns of the episode. Exactly the
+    protocol the samplers use. Returns the moments we calibrate to:
+
+      median of log(realised / quoted)
+      std    of log(realised / quoted)
+      95th percentile of log(realised / quoted)    the tail that drives CVaR
+      corr(episode log return, log ratio)          leverage, at this horizon
+    """
+    r = np.asarray(r, float)
+    q = _rolling_std(r, hist)                 # window r[i : i + hist]
+    e = _rolling_std(r, steps)
+    n = len(r) - hist - steps + 1
+    quoted = q[:n]
+    real = e[hist:hist + n]
+    lr = np.log(np.maximum(real, 1e-12) / np.maximum(quoted, 1e-12))
+    c = np.concatenate([[0.0], np.cumsum(r)])
+    ret = c[hist + steps:hist + steps + n] - c[hist:hist + n]
+    return np.array([np.median(lr), lr.std(), np.percentile(lr, 95),
+                     np.corrcoef(ret, lr)[0, 1]])
+
+
+def calibrate_heston_horizon(r, periods_per_year=TRADING_DAYS, seed=0, n_rep=8,
+                             hist=60, steps=30, verbose=False):
+    """Simulated method of moments on the horizon statistics above.
+
+    Why this target and not daily moments: to first order the P&L of a hedged
+    short option is (1/2) Gamma S^2 (sigma_quoted^2 - sigma_realised^2) dt, so
+    what a hedging simulator must get right is the distribution of
+    realised / quoted volatility over the life of the option. Fitting daily
+    kurtosis instead forced vol-of-vol to about 2, which made volatility far
+    too erratic at the 30-day horizon. See README, "the simulator we threw
+    away".
+
+    theta is pinned to the sample variance, as before. Three free parameters
+    (kappa, xi, rho) against four horizon moments.
+    """
+    from scipy.optimize import minimize
+
+    r = np.asarray(r, float)
+    n_days = len(r)
+    target = horizon_stats(r, hist, steps, periods_per_year)
+    theta = float(r.var(ddof=1) * periods_per_year)
+    rng = np.random.default_rng(seed)
+    z1 = rng.standard_normal((n_rep, n_days + 120))
+    z2 = rng.standard_normal((n_rep, n_days + 120))
+    scale = np.array([0.05, 0.05, 0.05, 0.1])
+
+    def unpack(u):
+        kappa = 0.2 + 29.8 / (1 + np.exp(-u[0]))      # (0.2, 30)
+        xi = 0.02 + 2.48 / (1 + np.exp(-u[1]))        # (0.02, 2.5)
+        rho = -0.95 / (1 + np.exp(-u[2]))             # (-0.95, 0)
+        return {"kappa": float(kappa), "xi": float(xi), "rho": float(rho),
+                "theta": theta}
+
+    def sim_stats(p):
+        sims = _simulate_daily_returns(p, n_days + 120, n_rep, z1, z2, periods_per_year)
+        return np.mean([horizon_stats(s[120:], hist, steps) for s in sims], axis=0)
+
+    def obj(u):
+        return float(np.sum(((sim_stats(unpack(u)) - target) / scale) ** 2))
+
+    best, best_f = None, np.inf
+    for u0 in ([0.0, -1.0, 0.0], [-1.5, -2.0, 1.0], [1.5, 0.0, -1.0], [0.0, -3.0, 0.5]):
+        res = minimize(obj, u0, method="Nelder-Mead",
+                       options={"maxiter": 300, "xatol": 1e-3, "fatol": 1e-6})
+        if verbose:
+            print("   start", u0, "->", round(res.fun, 5), unpack(res.x))
+        if res.fun < best_f:
+            best, best_f = res.x, res.fun
+    p = unpack(best)
+    fitted = sim_stats(p)
+    feller = 2 * p["kappa"] * p["theta"] - p["xi"] ** 2
+    p.update({"v0": theta, "long_run_vol": float(np.sqrt(theta)),
+              "feller_2kt_minus_xi2": float(feller), "feller_satisfied": bool(feller > 0),
+              "smm_objective": float(best_f),
+              "target_moments": target.tolist(), "fitted_moments": fitted.tolist(),
+              "moment_names": ["median_log_ratio", "sd_log_ratio", "p95_log_ratio",
+                               "corr_return_log_ratio"],
+              "target": "horizon"})
+    return p
