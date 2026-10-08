@@ -51,9 +51,11 @@ def bs(S, K, tau, sigma):
     formulas are singular, so we floor tau. The floor only ever applies at the
     final rebalance date, where delta is already essentially 0 or 1.
     """
-    S = torch.as_tensor(S, dtype=torch.float64)
-    tau = torch.as_tensor(tau, dtype=torch.float64).clamp_min(1e-10)
-    sigma = torch.as_tensor(sigma, dtype=torch.float64)
+    S = torch.as_tensor(S)
+    dt = S.dtype if S.is_floating_point() else torch.float64
+    S = S.to(dt)
+    tau = torch.as_tensor(tau, dtype=dt, device=S.device).clamp_min(1e-10)
+    sigma = torch.as_tensor(sigma, dtype=dt, device=S.device)
     srt = sigma * torch.sqrt(tau)
     d1 = (torch.log(S / K) + 0.5 * sigma ** 2 * tau) / srt
     d2 = d1 - srt
