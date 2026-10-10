@@ -169,11 +169,14 @@ class GRUPolicy(nn.Module):
         S = ep.S.to(dtype)
         B = S.shape[0]
         sig = ep.sigma_imp.to(dtype)
-        r = torch.log(S[:, 1:ep.hist + 1] / S[:, :ep.hist])
+        # history returns ending at price indices 1 .. hist-1. The return that
+        # ends AT inception (index hist) is left for the first decision step,
+        # so every return is read exactly once.
+        r = torch.log(S[:, 1:ep.hist] / S[:, :ep.hist - 1])
         z = r / (sig[:, None] * math.sqrt(1.0 / TRADING_DAYS))
         h = self.h0.expand(B, -1).to(dtype)
         zero = torch.zeros(B, dtype=dtype, device=S.device)
-        for i in range(ep.hist):
+        for i in range(ep.hist - 1):
             inp = torch.stack([z[:, i].clamp(-8, 8), zero, zero, zero, zero], 1)
             h = self.cell(inp, h)
         return {"h": h, "S": S, "sig": sig, "hist": ep.hist}
