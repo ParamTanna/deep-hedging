@@ -47,7 +47,7 @@ SPLIT = "2019-01-01"
 INDICES = ("NIFTY50", "SP500")
 T = sp.STEPS / sp.TRADING_DAYS
 BAND_GRID = [0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.075, 0.10, 0.15, 0.20]
-WW_GRID = [1, 3, 10, 30, 100, 300, 1000, 3000]
+WW_GRID = [0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000]
 ITERS = int(os.environ.get("ITERS", "1000"))
 TRADE_TOL = 1e-3          # a "trade" is a change in holding above 0.1% of notional
 
