@@ -279,6 +279,12 @@ def stage_prepare():
         print(f"{idx}: {rep['rows_kept']} rows, {rep['first_date']} to {rep['last_date']}")
     save("data_report.json", report)
 
+    # the pool of training-era volatilities that GBM training draws from
+    os.makedirs(os.path.join(ROOT, "data", "processed"), exist_ok=True)
+    pool = sp.vol_pool([pre_r[i] for i in INDICES])
+    np.save(os.path.join(ROOT, "data", "processed", "vol_pool_pre2019.npy"), pool)
+    print(f"vol pool: {len(pool)} trailing 60-day vols, {pool.min():.3f} to {pool.max():.3f}")
+
     # calibrations, training era only
     cal = {}
     for idx in INDICES:
