@@ -445,8 +445,11 @@ def stage_evaluate():
         learned = [f"gbm_mlp_c{HEADLINE}_s0", f"gbm_ntb_c{HEADLINE}_s0"] + \
                   [j for j in J if J[j].get("index") == idx]
         learned = [j for j in learned if os.path.exists(os.path.join(MODELS, j + ".pt"))]
+        # The calibration-era windows are a DIAGNOSTIC, not a test: the simulator
+        # was fitted on this period, so any gap here is pure misspecification.
+        # Inception stops at 2018-11-15 so no episode runs into 2019.
         for era, (a, b) in {"test_2019_on": (SPLIT, None),
-                            "calib_era_2009_2018": ("2009-01-01", "2018-12-31")}.items():
+                            "calib_era_pre2019": ("2000-01-01", "2018-11-15")}.items():
             ep = real_set(idx, a, b)
             for fam, tun in (("gbm_tuned", tuned["gbm"][str(HEADLINE)]),
                              ("heston_tuned", tuned["heston"][idx])):
