@@ -1,0 +1,62 @@
+{
+ "gbm": {
+  "0": {
+   "band_w": 0.005,
+   "band_val_cvar": -1.0808163684100882,
+   "ww_gamma": 0.1,
+   "ww_val_cvar": -1.0802348885021256,
+   "band_at_grid_edge": true,
+   "ww_at_grid_edge": true
+  },
+  "5": {
+   "band_w": 0.02,
+   "band_val_cvar": -1.250402429869634,
+   "ww_gamma": 100,
+   "ww_val_cvar": -1.237908927912768,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  },
+  "10": {
+   "band_w": 0.03,
+   "band_val_cvar": -1.4216452551609404,
+   "ww_gamma": 100,
+   "ww_val_cvar": -1.392477855519466,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  },
+  "20": {
+   "band_w": 0.03,
+   "band_val_cvar": -1.7710096254017762,
+   "ww_gamma": 100,
+   "ww_val_cvar": -1.6967552685445766,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  },
+  "50": {
+   "band_w": 0.075,
+   "band_val_cvar": -2.7852139500508333,
+   "ww_gamma": 10,
+   "ww_val_cvar": -2.5251402915133845,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  }
+ },
+ "heston": {
+  "NIFTY50": {
+   "band_w": 0.075,
+   "band_val_cvar": -2.7356957090951357,
+   "ww_gamma": 3,
+   "ww_val_cvar": -2.65699879091176,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  },
+  "SP500": {
+   "band_w": 0.075,
+   "band_val_cvar": -2.4752260634198557,
+   "ww_gamma": 10,
+   "ww_val_cvar": -2.3898472292703765,
+   "band_at_grid_edge": false,
+   "ww_at_grid_edge": false
+  }
+ }
+}
