@@ -48,7 +48,7 @@ INDICES = ("NIFTY50", "SP500")
 T = sp.STEPS / sp.TRADING_DAYS
 BAND_GRID = [0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.075, 0.10, 0.15, 0.20]
 WW_GRID = [0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000]
-ITERS = int(os.environ.get("ITERS", "1000"))
+ITERS = int(os.environ.get("ITERS", "1500"))   # every network gets the same budget
 TRADE_TOL = 1e-3          # a "trade" is a change in holding above 0.1% of notional
 
 
@@ -210,17 +210,36 @@ def train_job(job):
     spec = jobs()[job]
     torch.set_num_threads(int(os.environ.get("THREADS", "4")))
     world, idx = spec["world"], spec.get("index")
-    val = val_set(world, idx)
-    p = build(spec)
-    batch = int(os.environ.get("BATCH", "8192")) if spec["kind"] != "gru" else 4096
-    iters = ITERS if spec["kind"] != "gru" else max(ITERS // 2, 300)
+    # DEVICE=cuda trains on a GPU; the submitted models were trained this way on
+    # Colab (colab/train_on_colab.py). Simulation stays in NumPy on the CPU and
+    # each batch is moved to the device, so the training data do not depend on
+    # the hardware.
+    dev = torch.device(os.environ.get("DEVICE", "cpu"))
+    val = val_set(world, idx).to(device=dev)
+    # Seed torch before the network exists, so the seed fixes the initial weights.
+    # Seeding inside pol.train alone came too late, and torch's start-up seed is
+    # different in every process, so the first round of models could not be
+    # reproduced exactly. With this, every s0 model starts from the same weights
+    # and sees the same training batches; across the cost sweep only the cost
+    # differs.
+    torch.manual_seed(spec["seed"])
+    p = build(spec).to(dev)
+    batch = int(os.environ.get("BATCH", "8192"))
+    iters = ITERS
     print(f"[{job}] start  iters={iters} batch={batch}", flush=True)
-    res = pol.train(p, sampler_for(world, idx), spec["cost"], val,
+    base = sampler_for(world, idx)
+    sampler = base if dev.type == "cpu" else (lambda n, rng: base(n, rng).to(device=dev))
+    res = pol.train(p, sampler, spec["cost"], val,
                     objective=spec.get("objective", "cvar"), iters=iters, batch=batch,
                     seed=spec["seed"], eval_every=25,
                     log=lambda s: print(f"[{job}] {s}", flush=True))
-    torch.save({"state": p.state_dict(), "spec": spec, "train": res},
-               os.path.join(MODELS, job + ".pt"))
+    p = p.to("cpu")                          # checkpoints always load on a CPU
+    hw = torch.cuda.get_device_name(dev) if dev.type == "cuda" else "cpu"
+    path = os.path.join(MODELS, job + ".pt")
+    torch.save({"state": p.state_dict(), "spec": spec, "train": res, "device": str(dev),
+                "hardware": hw, "iters": iters, "batch": batch, "torch": torch.__version__},
+               path + ".tmp")
+    os.replace(path + ".tmp", path)          # never leave a half-written model behind
     print(f"[{job}] done   best val CVaR {res['best_val_cvar']:.4f}  "
           f"({res['train_secs']:.0f}s)", flush=True)
 
