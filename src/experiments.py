@@ -211,6 +211,11 @@ def train_job(job):
     torch.set_num_threads(int(os.environ.get("THREADS", "4")))
     world, idx = spec["world"], spec.get("index")
     val = val_set(world, idx)
+    # Seed torch before the network exists, so the seed fixes the initial weights.
+    # Seeding inside pol.train alone came too late, and torch's start-up seed is
+    # different in every process, so the first round of models could not be
+    # reproduced exactly.
+    torch.manual_seed(spec["seed"])
     p = build(spec)
     batch = int(os.environ.get("BATCH", "8192")) if spec["kind"] != "gru" else 4096
     iters = ITERS if spec["kind"] != "gru" else max(ITERS // 2, 300)
