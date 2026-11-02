@@ -253,20 +253,25 @@ def train(policy: nn.Module, sampler, cost_bps: float, val_ep,
       "quadratic"  E[PnL^2]. Classic quadratic hedging. Penalises both the
                    spread of outcomes and the average cost drag (since
                    E[X^2] = Var X + (E X)^2). Smooth and easy to optimise.
-      "cvar"       CVaR_alpha of the loss -PnL, through the Rockafellar-Uryasev
+      "cvar"       CVaR_alpha of the loss L = -PnL, through the Rockafellar-Uryasev
                    identity  CVaR(L) = min_w { w + E[(L - w)+] / (1 - alpha) }.
-                   We learn w jointly with the network. At the optimum w is the
-                   VaR. This is an unbiased objective whose minimum over w IS
-                   the CVaR, unlike the sorted-tail estimator, which is biased
-                   for finite batches.
+                   The inner minimum over w is attained at the alpha-quantile of
+                   L (the VaR), so we solve it exactly on every batch instead of
+                   learning w. We first learned w by gradient descent alongside
+                   the network and measured that it could not keep up: starting
+                   at 0 and moving about one learning rate per step, it could
+                   travel at most 0.76 over the whole schedule, while the true
+                   95% VaR was 0.89 under GBM and 1.6 to 1.9 under Heston. The
+                   network was then optimising the worst 8% to 25% of outcomes
+                   instead of the worst 5%. With w set to the batch quantile the
+                   objective is exactly the batch CVaR at every step.
 
     Model selection: every `eval_every` iterations we compute CVaR95 on a fixed
     validation set and keep the best weights. The test set is never seen here.
     """
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    w = torch.zeros(1, requires_grad=True)
-    opt = torch.optim.Adam(list(policy.parameters()) + [w], lr=lr)
+    opt = torch.optim.Adam(policy.parameters(), lr=lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, iters, eta_min=lr * 0.01)
     best_state, best_val, hist = None, -math.inf, []
     t0 = time.time()
@@ -297,7 +302,9 @@ def train(policy: nn.Module, sampler, cost_bps: float, val_ep,
         if objective == "quadratic":
             loss = (tot ** 2).mean()
         elif objective == "cvar":
-            loss = w + F.relu(-tot - w).mean() / (1.0 - alpha)
+            L = -tot
+            w = torch.quantile(L.detach(), alpha)   # exact minimiser over w for this batch
+            loss = w + F.relu(L - w).mean() / (1.0 - alpha)
         else:
             raise ValueError(objective)
         opt.zero_grad()
