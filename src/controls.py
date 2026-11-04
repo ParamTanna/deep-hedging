@@ -15,11 +15,10 @@ import engine
 import strategies as st
 import simulators as sim
 
-torch.set_default_dtype(torch.float64)
-
 K, T, SIG, N = 100.0, 30 / 252, 0.20, 30
-PREM = float(engine.bs(torch.tensor(100.0), K, torch.tensor(T),
-                       torch.tensor(SIG))[0])
+_f64 = dict(dtype=torch.float64)
+PREM = float(engine.bs(torch.tensor(100.0, **_f64), K, torch.tensor(T, **_f64),
+                       torch.tensor(SIG, **_f64))[0])
 
 
 def paths(n_steps, n_paths, seed):
@@ -28,6 +27,21 @@ def paths(n_steps, n_paths, seed):
 
 
 def main():
+    """Run every check in float64, then put torch's default dtype back.
+
+    The default used to be switched at import time, which silently turned
+    every network built afterwards into float64 in any process that imported
+    this module (the notebook does, to run the checks inline).
+    """
+    before = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        return _run()
+    finally:
+        torch.set_default_dtype(before)
+
+
+def _run():
     ok = True
     print("premium of the ATM 30-day call: %.6f\n" % PREM)
 
