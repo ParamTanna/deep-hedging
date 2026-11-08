@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deep Hedging Under Costs</title>
+<meta name="description" content="ES 335 project: can a neural network learn when not to trade? Hedging a short option under transaction costs on NIFTY 50 and S&P 500.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23b4462e'/%3E%3Cpath d='M6 22 L13 15 L18 19 L26 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<div class="topbar"><div class="inner">
+  <a class="brand" href="#top">Deep hedging under costs</a>
+  <nav class="nav">
+    <a href="#question">Question</a><a href="#data">Data</a><a href="#prep">Preprocessing</a>
+    <a href="#methods">Methods</a><a href="#eval">Evaluation</a><a href="#results">Results</a>
+    <a href="#errors">Errors</a><a href="#limits">Limitations</a><a href="#conclusion">Conclusion</a>
+    <a href="#reproduce">Reproduce</a>
+  </nav>
+  <button class="theme-btn" id="theme-btn" title="switch light and dark">theme</button>
+</div></div>
+
+<main id="top">
+
+<header class="hero">
+  <p class="kicker">ES 335 Machine Learning &middot; IIT Gandhinagar &middot; Final project</p>
+  <h1>Can a neural network learn when <em>not</em> to trade?</h1>
+  <p class="lede">We sell a 30-day option and hedge it every day. Black-Scholes says exactly how much to hold, but only if trading is free. It never is. We train a network to hedge under real trading costs, test it on simulated and real NIFTY 50 and S&amp;P 500 history, and check whether it rediscovers the no-trade band that theory predicts.</p>
+  <p class="byline">Param Tanna (24110236) &middot; Pranav Magarde (24110269) &middot;
+    <a href="https://github.com/REPO_OWNER/deep-hedging">code and notebook on GitHub</a></p>
+</header>
+
+<div class="headline-nums" id="headline-nums">
+  <div class="num-card"><div class="big"><span data-k="derived.gbm_gain_pct_mlp" data-f="pct"></span></div>
+    <div class="what">smaller tail loss (CVaR<sub>95</sub>) than Black-Scholes delta hedging at 10 bps, on 100,000 held-out simulated episodes</div></div>
+  <div class="num-card"><div class="big">cost<sup><span data-k="band_scaling.mlp.exponent" data-f="d2"></span></sup></div>
+    <div class="what">how the width of the network's self-taught no-trade band grows with cost. Theory says cost<sup>1/3</sup>, and nobody told the network.</div></div>
+  <div class="num-card"><div class="big" id="hn-real">see results</div>
+    <div class="what" id="hn-real-what">on real market data from 2019 onward, the honest picture is more nuanced.</div></div>
+</div>
+
+<!-- ============================================================ 1 -->
+<section id="question">
+<div class="prose">
+<div class="sec-no">1 &middot; Problem and research question</div>
+<h2>What we sold, and why hedging it is hard</h2>
+
+<p>Picture a desk that sells one call option on an index. The buyer pays a premium today. In 30 trading days the desk owes the buyer \(\max(S_T - K, 0)\), where \(S_T\) is the index level at expiry and \(K\) is the strike. If the index rallies, that bill has no ceiling. Left alone, the position is a bet that the market will not go up much. On our simulated test set an unhedged seller's average loss in the worst 5% of outcomes is <span data-k="derived.unhedged_cvar_abs" data-f="d1"></span> per 100 of notional, about <span data-k="derived.unhedged_cvar_over_premium" data-f="d1"></span> times the average premium collected. Doing nothing is not a serious option.</p>
+
+<p>The textbook answer is delta hedging: hold \(\Delta = \partial C / \partial S\) units of the index, so that small moves in the index change the value of your holding and of your obligation by the same amount. Black and Scholes proved that if you rebalance continuously and trading costs nothing, this removes the risk entirely. Both assumptions fail in practice. You rebalance at discrete times, so some risk leaks through between trades, and every trade costs a fraction of its value in fees, spread and slippage. Rebalancing more often cuts the first problem and inflates the second. Once costs enter there is no closed-form answer for the best strategy.</p>
+
+<div class="note"><span class="tag">The research question</span>
+For a short 30-day at-the-money call on an equity index, rebalanced once per trading day under a proportional transaction cost, which hedging policy gives the best tail outcome, measured by the CVaR at 95% of terminal profit and loss net of all fees? And does a neural policy trained only on that objective learn the no-trade structure that cost-aware rules build in by hand?</div>
+
+<h3>Unit of analysis, target, and what is known when</h3>
+<p><strong>One row is one episode</strong>: one option sold at an inception date and hedged until it expires. Inside an episode the policy makes 30 decisions, one per trading day, each choosing how many units of the index to hold until the next day. There is <strong>no target variable</strong> in the supervised sense, because nobody knows the correct hedge under costs (that is the open problem). Instead each policy is judged by the distribution of terminal profit and loss over many episodes.</p>
+<p><strong>At each decision the policy may use only what a desk knows at that moment</strong>: index prices up to today, the holding it currently has, the time left to expiry, the volatility it quoted when it sold the option, and the volatility realised over recent days. It never sees a future price. This is enforced in the code by tests that change future prices and check that no earlier decision moves.</p>
+
+<h3>Limits of the claim</h3>
+<p>We study one contract (an at-the-money call with 30 trading days to expiry), a proportional cost with no market impact, a zero interest rate and no dividends. The volatility quote comes from past index returns because we have no option market data, so we cannot speak to how a real desk prices with implied volatility. Real-data conclusions rest on about seven years of history containing a handful of independent stress events, and we say so wherever it matters. Our claims are about tail risk of hedged positions, not about making money from selling options.</p>
+</div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="data">
+<div class="prose">
+<div class="sec-no">2 &middot; Data source and description</div>
+<h2>Two indices, and what their returns look like</h2>
+
+<p>We use daily history of the <strong>NIFTY 50</strong> (Yahoo symbol <code>^NSEI</code>) and the <strong>S&amp;P 500</strong> (<code>^GSPC</code>), downloaded from Yahoo Finance's public chart endpoint by <code>src/data.py</code>. No key or login is needed and the exact request is visible in the code. <strong>One row is one trading day</strong>: date, open, high, low, close, adjusted close and volume. We use only the date and the adjusted close.</p>
+
+<div class="tbl-wrap wrap" id="tbl-quality"></div>
+
+<p>The quality checks turned up a few things worth knowing before trusting any number built on this data.</p>
+<ul>
+  <li><strong>NIFTY starts in September 2007 on Yahoo</strong>, not in 2000 as our proposal assumed. That is a real access limit and it shortens the Indian training period to about eleven years.</li>
+  <li><strong>The missing NIFTY rows are exchange holidays</strong> that Yahoo emits as empty rows. One is 27 November 2008, the day the exchange stayed shut during the Mumbai attacks. A price that does not exist cannot be imputed sensibly, so these rows are dropped, not filled.</li>
+  <li><strong>The longest gaps are real closures.</strong> The S&amp;P gap ending 17 September 2001 is the market closure after 9/11. The return across it is one genuine four-day move, and it stays in.</li>
+  <li><strong>Adjusted close equals close</strong> for both series, because Yahoo serves them as price indices. Dividends are therefore not in the data. This matches our zero-dividend model, and it is a limitation.</li>
+  <li><strong>NIFTY volume is zero on most early days</strong>, which is Yahoo not reporting it rather than a market fact. We never use volume.</li>
+</ul>
+
+<h3>The two facts that decide everything downstream</h3>
+<p>The simplest model of prices, geometric Brownian motion, assumes daily log returns are independent draws from one normal distribution. Two statistics test that directly, and both fail by a wide margin.</p>
+<div class="tbl-wrap" id="tbl-facts"></div>
+<p><strong>Fat tails.</strong> A normal distribution has excess kurtosis 0. NIFTY's is <span data-k="data_report.NIFTY50.pre2019.excess_kurtosis" data-f="d1"></span> and the S&amp;P's is <span data-k="data_report.SP500.pre2019.excess_kurtosis" data-f="d1"></span> before 2019. Big days happen far more often than a normal model allows.</p>
+<p><strong>Volatility clusters.</strong> The Ljung-Box statistic tests whether the first 20 autocorrelations are jointly zero. Its 5% critical value at 20 degrees of freedom is 31.4. On raw returns NIFTY gives <span data-k="data_report.NIFTY50.pre2019.ljung_box_returns_20" data-f="d0"></span>: detectable but small, and irrelevant here since we never forecast direction. On <em>absolute</em> returns it gives <span data-k="data_report.NIFTY50.pre2019.ljung_box_abs_returns_20" data-f="int"></span>, and the S&amp;P <span data-k="data_report.SP500.pre2019.ljung_box_abs_returns_20" data-f="int"></span>. Calm days follow calm days and violent days follow violent days. For a hedger this matters more than anything else on this page, as the next sections show.</p>
+
+<figure class="wide"><div class="fig">
+  <div class="controls"><span>Index</span><div class="seg" id="seg-acf">
+    <button data-v="NIFTY50" class="on">NIFTY 50</button><button data-v="SP500">S&amp;P 500</button></div></div>
+  <div id="fig-acf" class="plot"></div></div>
+  <figcaption><b>Volatility clustering, and which models reproduce it.</b> Autocorrelation of squared daily returns, pre-2019. GBM is flat at zero by construction. Both Heston fits produce clustering; the real series decays more slowly than either, a sign of long memory that a one-factor model cannot match.</figcaption>
+</figure>
+</div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="prep">
+<div class="prose">
+<div class="sec-no">3 &middot; Preprocessing and statistical reasoning</div>
+<h2>From prices to hedging episodes</h2>
+
+<p>Each step below exists for a stated reason.</p>
+<ol>
+  <li><strong>Sort, deduplicate, drop non-positive or missing closes.</strong> A log return needs two valid prices.</li>
+  <li><strong>Log returns of the adjusted close</strong>, \(r_t = \log(P_t / P_{t-1})\). Log returns add up over time and do not depend on the price level, which is what lets a 24,000-point index and a 6,000-point index share one model.</li>
+  <li><strong>Split by time at 1 January 2019, before anything is fitted.</strong> Every quantity estimated from data (the pool of training volatilities, every simulator parameter) uses returns up to the end of 2018 only. Every real episode whose option is sold from 2019 onward is test data. The split is by time and not at random, because a random split would let the model learn from days that sit between test days, which is leakage dressed up as validation.</li>
+  <li><strong>Build episodes with one protocol for every data source.</strong> An episode is 60 trading days of history followed by 30 trading days of hedging. At the sale date the desk quotes a volatility from the 60-day history (the annualised standard deviation of those 60 daily log returns), prices the option with Black-Scholes at that volatility, collects the premium, and starts hedging. Real windows, simulated GBM windows and simulated Heston windows all go through exactly this code.</li>
+  <li><strong>Rescale every path so the price at sale is 100</strong>, with the strike at 100. P&amp;L is then per 100 of notional and comparable across indices.</li>
+</ol>
+
+<div class="note"><span class="tag">Where leakage could hide, and why it does not</span>
+The network's inputs are scaled by the volatility quoted for <em>that</em> episode, computed from <em>that</em> episode's own past. No statistic of the test period enters any scaling. The 60 days of history before a 2019 test episode sit in late 2018, which is fine: a desk selling an option in January 2019 does know the previous three months. What it may not know, and what our code never uses, is anything after the decision date.</div>
+
+<h3>Why we need a simulator at all</h3>
+<p>Training a policy needs hundreds of thousands of independent episodes. The longer of our two series holds about 6,700 trading days, which is only around 220 non-overlapping 30-day windows. Enough to test on, far too few to learn from. So we fit a price generator on the training era, train on episodes it produces, and test on real history the generator never saw. Two generators:</p>
+<ul>
+  <li><strong>GBM</strong> with the volatility of each path drawn from the <span data-k="vol_pool_n" data-f="int">7,419</span> trailing 60-day volatilities that actually occurred before 2019 on either index, from 5% to 74%. The policy is therefore trained on the regimes a desk really lived through, the 2008 crisis included, rather than a range we picked by hand. Here the desk is told the true volatility, so Black-Scholes delta is the correct answer at zero cost and gives us a known reference.</li>
+  <li><strong>Heston</strong>, where volatility is itself random and mean-reverting: \(dv = \kappa(\theta - v)\,dt + \xi\sqrt{v}\,dW_2\), correlated with the price shock by \(\rho\). Here, as on real data, the desk does not know the volatility and must quote it from history.</li>
+</ul>
+
+<h3>The simulator we threw away</h3>
+<p>Our first Heston calibration matched the four daily moments everyone checks first: volatility, kurtosis, skewness and the autocorrelation of squared returns. It looked reasonable. Then we compared it with the training-era real data on the only thing a hedger cares about, and it was badly wrong.</p>
+<p>To first order, the P&amp;L of a delta-hedged short option over one step is</p>
+<div class="eq">$$\text{P\&L}_t \;\approx\; \tfrac12\,\Gamma_t S_t^2\left(\sigma_{\text{quoted}}^2\,\Delta t \;-\; r_t^2\right),$$</div>
+<p>so what drives the loss is how far the volatility that actually happens strays from the volatility you quoted. That ratio, realised over quoted, is the statistic a hedging simulator has to get right. The daily-moment fit had to push vol-of-vol \(\xi\) up to about 2 to make daily tails as fat as NIFTY's, and that made volatility swing far too wildly over a month. For NIFTY its 95th percentile volatility surprise was <span data-k="sim_check.NIFTY50.p95_heston_daily" data-f="d2"></span> times the quote, against <span data-k="sim_check.NIFTY50.p95_real" data-f="d2"></span> in the real training-era data, and under it even plain delta hedging had a tail loss of <span data-k="sim_check.NIFTY50.heston_daily" data-f="d2"></span> against a real <span data-k="sim_check.NIFTY50.real" data-f="d2"></span>. The S&amp;P version was off in the same direction (<span data-k="sim_check.SP500.heston_daily" data-f="d2"></span> against <span data-k="sim_check.SP500.real" data-f="d2"></span>).</p>
+<p>So we recalibrated to the right target. The second fit uses simulated method of moments on the distribution of \(\log(\sigma_{\text{realised}} / \sigma_{\text{quoted}})\) over 30-day windows (its median, spread and 95th percentile) and on its correlation with the window's return, which is the leverage effect at the horizon that matters. It ended with \(\xi\) of <span data-k="calibration.horizon.NIFTY50.xi" data-f="d2"></span> for NIFTY and <span data-k="calibration.horizon.SP500.xi" data-f="d2"></span> for the S&amp;P, a negative \(\rho\) on both, and both now satisfy the Feller condition that keeps variance away from zero.</p>
+
+<figure class="wide"><div class="fig">
+  <div class="controls"><span>Index</span><div class="seg" id="seg-surprise">
+    <button data-v="NIFTY50" class="on">NIFTY 50</button><button data-v="SP500">S&amp;P 500</button></div></div>
+  <div id="fig-surprise" class="plot"></div></div>
+  <figcaption><b>How wrong was the volatility quote?</b> Distribution of the log ratio of realised to quoted volatility over 30-day windows, training era. GBM (grey) almost never surprises. The daily-moment Heston (amber) surprises far too often and too hard. The horizon-calibrated Heston (blue) is the one we train on.</figcaption>
+</figure>
+
+<div class="tbl-wrap wrap" id="tbl-calib"></div>
+
+<p>As a check that the recalibration was not just curve-fitting its own targets, we looked at something it was never fitted to: the tail loss of plain delta hedging. Over the training era, at 10 bps, the horizon-calibrated Heston gives a CVaR of <span data-k="sim_check.NIFTY50.heston" data-f="d2"></span> for NIFTY against <span data-k="sim_check.NIFTY50.real" data-f="d2"></span> in real data, and <span data-k="sim_check.SP500.heston" data-f="d2"></span> against <span data-k="sim_check.SP500.real" data-f="d2"></span> for the S&amp;P. This is still the calibration period, so we treat it as a sanity check rather than evidence; the real test is 2019 onward.</p>
+<p>A smaller honest note: for the S&amp;P, several starting points of the optimiser reached nearly the same objective with different \((\kappa, \xi)\) pairs. Those two parameters are only identified jointly, along a ridge. For NIFTY the fit converged to the same point from different starts.</p>
+</div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="methods">
+<div class="prose">
+<div class="sec-no">4 &middot; Baselines and methods</div>
+<h2>Building up from first principles</h2>
+
+<h3>Step 1: what delta hedging cancels, and what it leaves</h3>
+<p>Expand the option's value over one small step: \(dC = \Delta\,dS + \tfrac12\Gamma\,dS^2 + \Theta\,dt\). Holding \(\Delta\) units of the index cancels the first term, the part that is linear in the price move. What remains is \(\tfrac12\Gamma\,dS^2 + \Theta\,dt\), and Black-Scholes sets \(\Theta = -\tfrac12\Gamma\sigma^2 S^2\), which gives the expression from the previous section. Its mean is zero when realised variance equals the quote. Its spread is what discrete hedging cannot remove: per step the variance of \(r_t^2 - \sigma^2\Delta t\) is \(2\sigma^4\Delta t^2\) for normal returns, there are \(T/\Delta t\) steps, so the total standard deviation scales like \(\sqrt{\Delta t}\). <strong>Rebalance four times as often and the hedging error halves.</strong></p>
+<p>Our engine reproduces this law. At zero cost, with volatility fixed at 20%, going from 30 to 120 rebalances moves the tail from \(-1.006\) to \(-0.506\), a ratio of 1.99 against the predicted 2. We use this as one of ten correctness checks the engine has to pass before any result is trusted.</p>
+
+<h3>Step 2: why continuous hedging is infinitely expensive</h3>
+<p>Each step the delta moves by about \(\Gamma\,dS\), so the trade size is of order \(\Gamma S\sigma\sqrt{\Delta t}\) and costs \(k\) times its value. There are \(T/\Delta t\) steps, so total cost grows like \(k\,\Gamma S^2 \sigma\,T/\sqrt{\Delta t}\), which goes to infinity as you rebalance continuously. Error shrinks like \(\sqrt{\Delta t}\), cost grows like \(1/\sqrt{\Delta t}\). Somewhere between them is a best frequency, and it depends on the cost. This is the whole reason the problem is hard.</p>
+
+<h3>Step 3: trade when it matters, not on a clock</h3>
+<p>Rather than picking a frequency, let your holding drift until it is far enough from delta to be worth fixing. Call the allowed drift \(H\). Inside that band your mis-hedge has variance of order \(H^2\), so the risk you carry costs something like \(\gamma\sigma^2S^2H^2\) for a risk aversion \(\gamma\). Meanwhile delta wanders at rate \(\Gamma\sigma S\), and the holding hits the band edge at a rate proportional to \((\Gamma\sigma S)^2/H\), paying \(kS\) per unit traded. Minimise the sum of the two over \(H\):</p>
+<div class="eq">$$\frac{d}{dH}\Big[\gamma\sigma^2S^2H^2 + \frac{kS\,\Gamma^2\sigma^2S^2}{H}\Big] = 0 \quad\Longrightarrow\quad H^3 \propto \frac{k\,S\,\Gamma^2}{\gamma}, \qquad H \propto k^{1/3}.$$</div>
+<p>This is the Whalley-Wilmott band, here in three lines. Its full form is \(H = \big(\tfrac32\,k S \Gamma^2/\gamma\big)^{1/3}\). Two things are worth reading off it. The band is widest where gamma is large, near the strike and close to expiry, which is exactly where delta moves fastest and chasing it costs most. And it grows with the cube root of cost: double the cost and the band widens by about 26%, not 100%.</p>
+
+<h3>Step 4: why learn anything?</h3>
+<p>Whalley-Wilmott answers a nearby problem, not ours. It is an asymptotic result for small costs, derived for exponential utility rather than tail risk, for continuous monitoring rather than once a day, and for a known volatility. Our problem is the exact one: CVaR of the actual P&amp;L of a 30-step discrete hedge, with a volatility that has to be guessed. Nobody has a formula for that. A policy trained directly on it is not a fashion choice, it is the most direct way to optimise the objective we actually care about.</p>
+
+<h3>The baselines, weakest to strongest</h3>
+<div class="tbl-wrap"><table>
+<thead><tr><th>Baseline</th><th>What it does</th><th>Assumes</th><th>Tuned on</th></tr></thead>
+<tbody>
+<tr><td>Unhedged</td><td>Holds nothing</td><td>nothing</td><td>nothing</td></tr>
+<tr><td>Black-Scholes delta</td><td>Holds \(N(d_1)\) every day</td><td>free, continuous trading; known volatility</td><td>nothing</td></tr>
+<tr><td>Leland delta</td><td>Delta at an inflated volatility \(\sigma\sqrt{1 + \sqrt{2/\pi}\,2k/(\sigma\sqrt{\Delta t})}\)</td><td>small cost, fixed interval</td><td>nothing</td></tr>
+<tr><td>Constant band</td><td>Trades back to delta only when \(|h - \Delta| > w\)</td><td>one width fits every state</td><td>\(w\) on validation</td></tr>
+<tr><td>Whalley-Wilmott band</td><td>Gamma-dependent width, trades to the band edge</td><td>small cost, exponential utility</td><td>\(\gamma\) on validation</td></tr>
+</tbody></table></div>
+<p>Black-Scholes delta is a serious baseline, not a straw man: it is provably optimal in the frictionless limit. But beating it under costs is easy, so the bar we hold the network to is Whalley-Wilmott, a cost-aware rule with a derived shape and one parameter tuned on the same validation data the network uses.</p>
+
+<h3>Learning a policy without labels</h3>
+<p>The network maps the state at a rebalance date to a holding. We simulate a whole batch of 30-step episodes, let the network make every decision, and compute the terminal P&amp;L with the same accounting engine that scores the baselines. Every operation in that loop (multiply, subtract, absolute value, max) is differentiable, so PyTorch can push the gradient of the risk of the final P&amp;L back through all 30 decisions. This is the deep hedging idea of Buehler, Gonon, Teichmann and Wood (2019). The "deep" refers to the depth of the computation graph, 30 decisions long, more than to the network.</p>
+
+<p><strong>The objective is CVaR at 95%</strong>, the average of the worst 5% of outcomes, written in the Rockafellar-Uryasev form</p>
+<div class="eq">$$\operatorname{CVaR}_{0.95}(L) = \min_{w}\Big\{\,w + \frac{1}{0.05}\,\mathbb{E}\big[(L - w)^+\big]\Big\}, \qquad L = -\text{P\&L},$$</div>
+<p>where \(w\) is learned alongside the network and settles at the Value at Risk. We chose CVaR over variance because variance punishes a surprise profit exactly as hard as a surprise loss, and a hedger does not feel that way. CVaR looks only at the tail, which is the reason hedging exists. Its cost is noisier gradients, since only 5% of each batch carries signal, which is why we train on batches of 8,192 episodes and also report a model trained on the smoother quadratic objective \(\mathbb{E}[\text{P\&L}^2]\).</p>
+
+<h3>Three architectures, each for a reason</h3>
+<ul>
+  <li><strong>MLP</strong> (3 layers of 64, about 8,700 weights). Its input includes the current holding and nothing about bands. If it learns a no-trade region, it found it on its own. This is the model that answers the research question.</li>
+  <li><strong>No-trade band network</strong> (Imaki et al. 2021). It outputs a band \([l, u]\) from the state without the current holding, and the hedge is \(\text{clamp}(h_{\text{prev}}, l, u)\). The band shape is built in; only its width is learned. It asks a different question: granting the structure theory says is right, how much does learning the width beat the formula?</li>
+  <li><strong>Recurrent policy (GRU)</strong>. Under stochastic volatility the variance cannot be observed, so the state a memoryless policy sees is incomplete. The GRU reads the raw return history and can carry its own estimate of the current regime. We only use it where volatility actually moves (Heston and real data).</li>
+</ul>
+<p><strong>Inputs</strong> are written in the units the problem is invariant to, so the network does not waste capacity relearning them: moneyness in remaining standard deviations \(\log(S/K)/(\sigma\sqrt{\tau})\), the square root of the fraction of life left, the total quoted volatility \(\sigma\sqrt{T}\), and the current holding. The Heston-trained models also see how far recent realised volatility has moved from the quote. Every input is something a desk knows at the decision date. Holdings are kept in \([0,1]\), the same range delta itself lives in.</p>
+
+<p><strong>Why a small network.</strong> The policy maps four or five numbers to one, and the function it has to learn is smooth. A width-64 network already has far more capacity than that needs, and a much larger one would only fit simulation noise. We test this rather than assume it: an ablation trains widths from 8 to 128.</p>
+</div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="eval">
+<div class="prose">
+<div class="sec-no">5 &middot; Evaluation strategy</div>
+<h2>How we keep ourselves honest</h2>
+<p>Everything in this section was fixed in code before any test number was computed, so no choice below could have been tuned to flatter a result.</p>
+
+<h3>Splits</h3>
+<ul>
+  <li><strong>Training</strong>: fresh simulated episodes every iteration, from a seeded random stream.</li>
+  <li><strong>Validation</strong>: a fixed set of 20,000 simulated episodes (seed 1001). It picks the network checkpoint, the band width \(w\), the Whalley-Wilmott \(\gamma\) and every other choice.</li>
+  <li><strong>Simulated test</strong>: a fixed set of 100,000 episodes (seed 2002), scored once at the end.</li>
+  <li><strong>Real test</strong>: every NIFTY and S&amp;P episode sold from 1 January 2019 on (<span data-k="real.NIFTY50.test_2019_on|n_windows" data-f="int"></span> for NIFTY, <span data-k="real.SP500.test_2019_on|n_windows" data-f="int"></span> for the S&amp;P), scored once at the end. No strategy and no parameter was ever chosen by looking at it.</li>
+</ul>
+<p>We also score real episodes from <em>before</em> 2019, but only as a diagnostic. The simulator was calibrated on that period, so any gap between simulated and real performance there is pure model error, and comparing it with the gap after 2019 separates model error from change in market regime.</p>
+
+<h3>Fair comparisons</h3>
+<p>Every strategy is scored by the same accounting engine on the same paths, with the same rebalance dates, the same cost and the same premium. Rules with a parameter are tuned on exactly the validation set the network that competes with them was selected on: rules compared with GBM-trained networks are tuned on GBM validation, rules compared with Heston-trained networks on Heston validation.</p>
+
+<h3>Metrics, and why these</h3>
+<p>The primary metric is <strong>CVaR at 95% of terminal P&amp;L, net of all fees</strong>, in units per 100 of notional. Less negative is better. Fees are inside it, so a strategy cannot look good by trading constantly: every rupee of cost lowers the P&amp;L it is judged on. Alongside it we report the mean, the standard deviation, average fees paid and the number of trades (a change of holding above 0.1% of notional), because the trade-off only makes sense when risk and cost are read together.</p>
+
+<h3>Uncertainty</h3>
+<p>Every CVaR comes with a 95% bootstrap interval, and so does every difference between a strategy and delta hedging. The bootstrap is <strong>paired</strong>: in each resample all strategies are scored on the same episodes, so the interval of a difference reflects only the strategies and not which paths happened to be drawn. On real data, neighbouring windows share 29 of their 30 days, so treating them as independent would make the intervals far too narrow. We use a <strong>moving-block bootstrap</strong> with blocks of 30 trading days instead.</p>
+
+<h3>Controls that must pass first</h3>
+<p>Before any comparison is trusted, the engine passes ten checks in <code>src/controls.py</code>: delta and gamma agree with finite differences of the price to \(10^{-8}\); at zero cost the tail shrinks monotonically with rebalancing and follows the \(\sqrt{\Delta t}\) law; the mean P&amp;L of delta hedging is statistically zero (the premium is fair); a band of width zero reproduces delta exactly; a very wide band never trades; Leland and Whalley-Wilmott reduce to delta at zero cost; and for every strategy, changing future prices leaves past decisions untouched. The learned policies pass the same causality test.</p>
+<p>The strongest control is for the network itself: <strong>train it at zero cost</strong>. The right answer there is known, close to Black-Scholes delta, so if the network does not land near it, something in the simulation or the gradients is broken.</p>
+</div>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="results">
+<div class="prose">
+<div class="sec-no">6 &middot; Results</div>
+<h2>What we found</h2>
+<div id="results-prose"></div>
+</div>
+
+<figure class="wide"><div class="fig">
+  <div class="controls"><span>Show</span><div class="seg" id="seg-sweep">
+    <button data-v="cvar" class="on">Tail loss (CVaR)</button><button data-v="gain">Gain over delta</button>
+    <button data-v="cost">Fees paid</button><button data-v="sd">Std dev</button></div></div>
+  <div id="fig-sweep" class="plot"></div></div>
+  <figcaption><b>All strategies across the cost sweep</b>, GBM, 100,000 test episodes per cost level. Error bars are 95% paired-bootstrap intervals.</figcaption>
+</figure>
+
+<div class="wide"><div class="tbl-wrap" id="tbl-headline"></div></div>
+
+<div class="prose" id="results-prose-2"></div>
+
+<figure class="wide"><div class="fig">
+  <div class="controls">
+    <label>Cost <input type="range" id="band-cost" min="0" max="4" step="1" value="2"> <span class="val" id="band-cost-v"></span></label>
+    <label>Time to expiry <input type="range" id="band-time" min="0" max="6" step="1" value="3"> <span class="val" id="band-time-v"></span></label>
+  </div>
+  <div id="fig-band" class="plot tall"></div>
+  <div class="readout" id="band-readout"></div></div>
+  <figcaption><b>Explore the no-trade band.</b> For each index level, the shaded blue region is where Whalley-Wilmott would not trade. The red lines are where the MLP stops trading, measured by asking it, for every possible current holding, whether it would change that holding. Nobody told it to leave a gap. Slide the cost up and watch both bands open; slide toward expiry and watch them narrow away from the strike.</figcaption>
+</figure>
+
+<div class="prose" id="results-prose-3"></div>
+
+<div class="two wide">
+  <figure><div class="fig"><div id="fig-scaling" class="plot"></div></div>
+    <figcaption><b>The cube-root law, rediscovered.</b> Learned half-width of the no-trade band at the money, mid-life, against cost on log axes. The dotted line has the theoretical slope of 1/3.</figcaption></figure>
+  <figure><div class="fig"><div id="fig-zero" class="plot"></div></div>
+    <figcaption><b>The zero-cost control.</b> Trained with no transaction cost, the MLP's hedge (solid) against Black-Scholes delta (dotted) at three times to expiry.</figcaption></figure>
+</div>
+
+<div class="prose" id="results-prose-4"></div>
+
+<figure class="wide"><div class="fig">
+  <div class="controls"><label>World <select id="world-sel">
+    <option value="gbm">GBM, simulated test (10 bps)</option>
+    <option value="heston:NIFTY50">Heston, NIFTY calibration, simulated test</option>
+    <option value="heston:SP500">Heston, S&amp;P calibration, simulated test</option>
+    <option value="real:NIFTY50">Real NIFTY 50, sold 2019 onward</option>
+    <option value="real:SP500">Real S&amp;P 500, sold 2019 onward</option>
+  </select></label></div>
+  <div id="fig-worlds" class="plot tall"></div>
+  <div class="readout" id="world-readout"></div></div>
+  <figcaption><b>From simulation to real markets.</b> Tail loss of every strategy in each world, with 95% intervals, at 10 bps. Switch worlds to see which rankings survive the move to real data.</figcaption>
+</figure>
+
+<div class="wide"><div class="tbl-wrap" id="tbl-real"></div></div>
+<div class="prose" id="results-prose-5"></div>
+<div class="wide"><div class="tbl-wrap" id="tbl-ablation"></div></div>
+
+<figure class="wide"><div class="fig"><div id="fig-train" class="plot"></div></div>
+  <figcaption><b>Training curves</b> on the validation set at 10 bps. Dashed lines are the tuned rules on the same validation set. The checkpoint with the best validation CVaR is the one tested.</figcaption></figure>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="errors">
+<div class="prose">
+<div class="sec-no">7 &middot; Error analysis</div>
+<h2>Where the losses come from</h2>
+<div id="errors-prose"></div>
+</div>
+
+<figure class="wide"><div class="fig">
+  <div class="controls">
+    <label>Index <select id="vs-idx"><option value="NIFTY50">NIFTY 50</option><option value="SP500">S&amp;P 500</option></select></label>
+    <label>Strategy <select id="vs-strat"><option value="bs_delta">Black-Scholes delta</option></select></label>
+  </div>
+  <div id="fig-volscatter" class="plot tall"></div>
+  <div class="readout" id="vs-readout"></div></div>
+  <figcaption><b>Every real test episode</b>, sold 2019 onward: final P&amp;L against how much realised volatility exceeded the quote. Hover a point for its date.</figcaption>
+</figure>
+
+<div class="wide"><div class="tbl-wrap" id="tbl-worst"></div></div>
+
+<figure class="wide"><div class="fig">
+  <div class="controls">
+    <label>Index <select id="ep-idx"><option value="NIFTY50">NIFTY 50</option><option value="SP500">S&amp;P 500</option></select></label>
+    <label>Episode <input type="range" id="ep-slider" min="0" max="400" value="0" style="width:240px"></label>
+    <label><select id="ep-worst"></select></label>
+  </div>
+  <div id="fig-episode" class="plot" style="min-height:560px"></div>
+  <div class="readout" id="ep-readout"></div></div>
+  <figcaption><b>Replay any real episode.</b> Top: the index after the sale, rescaled to 100. Bottom: what each strategy held each day. Use the dropdown to jump to the worst episodes.</figcaption>
+</figure>
+<div class="prose" id="errors-prose-2"></div>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="limits">
+<div class="prose">
+<div class="sec-no">8 &middot; Limitations</div>
+<h2>What this study cannot tell you</h2>
+<div id="limits-prose"></div>
+</div>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="conclusion">
+<div class="prose">
+<div class="sec-no">9 &middot; Conclusion</div>
+<h2>What we take away</h2>
+<div id="conclusion-prose"></div>
+</div>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="reproduce">
+<div class="prose">
+<div class="sec-no">10 &middot; Reproduction steps</div>
+<h2>Rebuild every number on this page</h2>
+<p>Python 3.13 with NumPy, SciPy, pandas, PyTorch (CPU is enough) and requests. No GPU, no API key.</p>
+<pre><code>git clone https://github.com/REPO_OWNER/deep-hedging
+cd deep-hedging
+pip install -r requirements.txt
+
+python src/controls.py               # ten correctness checks, all must pass
+python src/experiments.py prepare    # download data, quality report, calibration
+python src/experiments.py tune       # band width and WW gamma, on validation only
+python src/experiments.py train-all  # 25 policies, about 90 minutes on a laptop CPU
+python src/experiments.py evaluate   # every test number, with bootstrap intervals
+python src/analysis.py               # bands, scaling law, error analysis
+python src/export.py                 # writes docs/data/ for this page</code></pre>
+<p>Seeds are fixed throughout (validation 1001, test 2002, training runs 0, 1, 2), so reruns reproduce the same numbers up to floating point. The notebook <code>notebooks/deep_hedging.ipynb</code> walks through the same pipeline with the results inline. Raw price data is not redistributed in the repository; <code>prepare</code> downloads it. The episodes shown on this page are rescaled to 100 at each sale date.</p>
+
+<h3>Use of AI tools</h3>
+<p id="ai-disclosure">We used Claude (Anthropic) as a coding and writing assistant throughout: for implementing and debugging the simulation, training and evaluation code, for checking derivations, and for drafting and editing the text of this page and the README. Every result was produced by code in this repository and checked against the ten correctness controls; the modelling decisions, including throwing away the first simulator, came out of examining the outputs. We are responsible for all of it and can explain any part.</p>
+
+<h3>References</h3>
+<ol style="font-size:16px">
+  <li>Black, F. and Scholes, M. (1973). The pricing of options and corporate liabilities. <i>Journal of Political Economy</i> 81(3).</li>
+  <li>Leland, H. E. (1985). Option pricing and replication with transactions costs. <i>Journal of Finance</i> 40(5).</li>
+  <li>Heston, S. L. (1993). A closed-form solution for options with stochastic volatility. <i>Review of Financial Studies</i> 6(2).</li>
+  <li>Whalley, A. E. and Wilmott, P. (1997). An asymptotic analysis of an optimal hedging model for option pricing with transaction costs. <i>Mathematical Finance</i> 7(3).</li>
+  <li>Rockafellar, R. T. and Uryasev, S. (2000). Optimization of conditional value-at-risk. <i>Journal of Risk</i> 2(3).</li>
+  <li>Lord, R., Koekkoek, R. and van Dijk, D. (2010). A comparison of biased simulation schemes for stochastic volatility models. <i>Quantitative Finance</i> 10(2).</li>
+  <li>Buehler, H., Gonon, L., Teichmann, J. and Wood, B. (2019). Deep hedging. <i>Quantitative Finance</i> 19(8).</li>
+  <li>Imaki, S., Imajo, K., Ito, K., Minami, K. and Nakagawa, K. (2021). No-transaction band network: a neural network architecture for efficient deep hedging. arXiv:2103.01775.</li>
+  <li>Ljung, G. M. and Box, G. E. P. (1978). On a measure of lack of fit in time series models. <i>Biometrika</i> 65(2).</li>
+  <li>Data: Yahoo Finance, daily history of ^NSEI and ^GSPC, retrieved November 2026.</li>
+</ol>
+</div>
+</section>
+
+<footer>Param Tanna and Pranav Magarde &middot; ES 335, IIT Gandhinagar, 2026 &middot; Built as a static page; every figure is drawn in your browser from the JSON files in <code>data/</code>.</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/contrib/auto-render.min.js"></script>
+<script src="tables.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
