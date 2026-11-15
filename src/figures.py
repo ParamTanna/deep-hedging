@@ -131,15 +131,21 @@ def fig_scaling(sc, inert=None):
         a = np.log(y).mean() - sc["ntb"]["exponent"] * np.log(x).mean()
         ax.loglog(xs, np.exp(a) * xs ** sc["ntb"]["exponent"], color=C["ntb"], lw=1.2)
         a3 = np.log(y).mean() - np.log(x).mean() / 3
-        ax.loglog(xs, np.exp(a3) * xs ** (1 / 3), ":", color="#555", lw=2, label="theory: slope 1/3")
+        ax.loglog(xs, np.exp(a3) * xs ** (1 / 3), ":", color="#555", lw=2,
+                  label="continuous trading: slope 1/3")
+        a1 = np.log(y).mean() - np.log(x).mean()
+        ax.loglog(xs, np.exp(a1) * xs, "--", color="#555", lw=1.3, label="one decision per step: slope 1")
     ax.set_xlabel("transaction cost (bps)"); ax.set_ylabel("learned half-width at the money")
-    ax.set_title("The cube-root law"); ax.legend(fontsize=8.5)
+    ax.set_title("The cube-root law, tested"); ax.legend(fontsize=8.5)
     ax = axs[1]
     if inert:
         cs = sorted(int(c) for c in inert)
-        ax.plot(cs, [inert[str(c)]["100.0"]["slope"] for c in cs], "o-", color=C["mlp"], lw=2)
+        ys = [inert[str(c)]["100.0"]["slope"] for c in cs]
+        ax.plot(cs, ys, "o-", color=C["mlp"], lw=2)
+        ax.axhline(0, color="#999", lw=0.8)
+        ax.set_ylim(bottom=min(0.0, min(ys)) - 0.01)
     ax.set_xlabel("transaction cost (bps)"); ax.set_ylabel("d(new holding) / d(current holding)")
-    ax.set_title("The MLP's inertia grows with cost"); ax.set_ylim(bottom=0)
+    ax.set_title("The MLP's inertia grows with cost")
     fig.tight_layout()
     fig.savefig(os.path.join(FIG, "fig_scaling.png"), bbox_inches="tight")
     plt.close(fig)
