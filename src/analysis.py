@@ -232,6 +232,179 @@ def effective_vols():
     return out
 
 
+def explain_mlp():
+    """How much of the MLP's gain a one-line rule reproduces. Validation set only.
+
+    The MLP rests near Black-Scholes delta computed at an inflated volatility
+    (effective_vol above). We test that reading by building the rule it
+    suggests: Leland's delta, with its volatility multiplied by c0, where c0 is
+    the MLP's inflation at zero cost read off its holdings. No P&L is used to
+    choose c0, and the rule is scored on the validation set next to the MLP;
+    the test set is not touched by this exploration.
+
+    It also asks whether the cost part of the inflation has Leland's shape:
+    extra variance linear in the cost and proportional to 1 / sigma.
+    """
+    val = ex.val_set("gbm")
+    S, sig, n = val.episode, val.sigma_imp, val.steps
+    mlp0 = ex.load_policy("gbm_mlp_c0_s0")[0]
+    c0 = effective_vol(mlp0, 10)["ratio"]
+
+    def cv(H, cost):
+        return float(engine.cvar(ex.score(H, val, cost)[0]))
+
+    def mlp_cvar(cost):
+        with torch.no_grad():
+            return cv(pol.rollout(ex.load_policy(f"gbm_mlp_c{cost}_s0")[0], val).double(), cost)
+
+    zero = {f"{c:.2f}": cv(st.bs_delta(S, 100.0, T, sig * c, n), 0)
+            for c in (1.0, 1.05, 1.10, 1.15, 1.20, 1.30, 1.45)}
+    rows = {}
+    for cost in ex.COSTS:
+        sl = torch.tensor([st.leland_sigma(float(x), cost, T, n) for x in sig], dtype=S.dtype)
+        d = cv(st.bs_delta(S, 100.0, T, sig, n), cost)
+        l = cv(st.bs_delta(S, 100.0, T, sl, n), cost)
+        lc = cv(st.bs_delta(S, 100.0, T, sl * c0, n), cost)
+        m = mlp_cvar(cost)
+        rows[str(cost)] = {"delta": d, "leland": l, "leland_c0": lc, "mlp": m,
+                           "share_explained": (lc - d) / (m - d)}
+    scale = {}
+    for s_ref in (0.10, 0.15, 0.25):
+        base = effective_vol(mlp0, 10, s_ref)["ratio"]
+        per = {}
+        for cost in ex.COSTS[1:]:
+            r = effective_vol(ex.load_policy(f"gbm_mlp_c{cost}_s0")[0], 10, s_ref)["ratio"]
+            per[str(cost)] = {"network": (r / base) ** 2 - 1,
+                              "leland": (st.leland_sigma(s_ref, cost, T, n) / s_ref) ** 2 - 1}
+        scale[f"{s_ref:.2f}"] = {"zero_cost_ratio": base, "extra_variance": per}
+    return {"c0": c0, "zero_cost_delta_at_c": zero, "by_cost": rows, "leland_scaling": scale}
+
+
+def band_regime():
+    """Why the learned band grows faster than cost^(1/3) in this setting.
+
+    The cube-root law assumes the holding drifts continuously and meets the
+    band edge gently. With one rebalance a day, compare the band with how far
+    delta moves in one day at the same state. If a day's move is larger than
+    the band, the edge is crossed by jumps and the keep-or-trade decision is
+    made step by step: carrying a gap x adds risk of order x^2 for one step,
+    closing it costs k|x|, so the threshold grows like k, not k^(1/3).
+    The two tuned rules, whose widths were chosen on validation separately for
+    each cost, are refitted the same way as a check that does not involve any
+    network.
+    """
+    tuned = ex.load("tuned_rules.json")["gbm"]
+    costs = [c for c in ex.COSTS if c > 0]
+    t = 15                                   # the state the band network is measured at
+    d, g = bs_delta_at(100.0, t)
+    day_move = g * 100.0 * SIG_REF * math.sqrt(1.0 / sp.TRADING_DAYS)
+
+    def slope(vals):
+        return float(np.polyfit(np.log(costs), np.log(vals), 1)[0])
+
+    band_w = [tuned[str(c)]["band_w"] for c in costs]
+    ww_h = [(1.5 * c * 1e-4 * 100.0 * g * g / tuned[str(c)]["ww_gamma"]) ** (1 / 3) for c in costs]
+    return {"t": t, "sigma": SIG_REF, "one_day_delta_move": float(day_move),
+            "band_w": band_w, "band_exponent": slope(band_w),
+            "ww_half_width": [float(h) for h in ww_h], "ww_exponent": slope(ww_h)}
+
+
+def contrasts():
+    """Each network against the BEST rule, with paired intervals, not only against delta.
+
+    Same test sets and the same resampling as evaluate (paired; moving blocks
+    of 30 on overlapping real windows). The reference is whichever rule scored
+    best on that very test set, over both tunings on real data. Picking the
+    best of several noisy scores flatters the rule, so this comparison leans
+    against the networks. Nothing is tuned here.
+    """
+    tuned = ex.load("tuned_rules.json")
+    m = ex.load("metrics.json")
+    H = ex.HEADLINE
+
+    def run(ep, cost, rule_sets, scores, jobs, block):
+        tots = {}
+        for fam, tun in rule_sets.items():
+            for name in ("leland", "band", "ww"):
+                key = name if name == "leland" else f"{name}|{fam}"
+                if key not in tots:
+                    tots[key] = ex.score(ex.rule_holdings(name, ep, cost, tun), ep, cost)[0]
+        best = max(scores, key=scores.get)
+        for j in jobs:
+            with torch.no_grad():
+                tots[j] = ex.score(pol.rollout(ex.load_policy(j)[0], ep).double(), ep, cost)[0]
+        _, dci = ex.bootstrap_cvar(tots, n_boot=600 if block else 400, block=block, ref=best)
+        return {"best_rule": best, "best_rule_cvar": scores[best],
+                "minus_best_rule_ci": {j: dci[j] for j in jobs}}
+
+    out = {}
+    test = ex.test_set("gbm")
+    for c in [c for c in ex.COSTS if c > 0]:     # at zero cost every rule is delta
+        g = m["gbm"][str(c)]
+        scores = {"leland": g["leland"]["cvar95"], "band|gbm": g["band"]["cvar95"],
+                  "ww|gbm": g["ww"]["cvar95"]}
+        out[f"gbm_{c}"] = run(test, c, {"gbm": tuned["gbm"][str(c)]}, scores,
+                              [f"gbm_mlp_c{c}_s0", f"gbm_ntb_c{c}_s0"], None)
+    for idx in ex.INDICES:
+        ep = ex.real_set(idx, ex.SPLIT)
+        R = m["real"][idx]
+        g, h = R["test_2019_on|gbm_tuned"], R["test_2019_on|heston_tuned"]
+        scores = {"leland": g["leland"]["cvar95"],
+                  "band|gbm": g["band"]["cvar95"], "ww|gbm": g["ww"]["cvar95"],
+                  "band|heston": h["band"]["cvar95"], "ww|heston": h["ww"]["cvar95"]}
+        jobs = [f"gbm_mlp_c{H}_s0", f"gbm_ntb_c{H}_s0"] + \
+               [f"hes_{idx}_{k}_c{H}_s0" for k in ("mlprv", "ntbrv", "gru")]
+        out[f"real_{idx}"] = run(ep, H, {"gbm": tuned["gbm"][str(H)], "heston": tuned["heston"][idx]},
+                                 scores, jobs, 30)
+    return out
+
+
+def calib_era_diagnostic(idx="NIFTY50"):
+    """Why the Heston-trained networks trail delta on NIFTY's own calibration era.
+
+    A diagnostic, not a test: these windows (2007 to 2018) are the ones the
+    simulator was fitted on. We record which years the worst 5% of windows come
+    from, the largest one-day move in the history, and, for the worst window,
+    what delta and the network held the day before that move.
+    """
+    import pandas as pd
+    tuned = ex.load("tuned_rules.json")["gbm"][str(ex.HEADLINE)]
+    ep = ex.real_set(idx, "2000-01-01", "2018-11-15")
+    H = ex.HEADLINE
+    jobs = [f"hes_{idx}_mlprv_c{H}_s0", f"hes_{idx}_gru_c{H}_s0", f"gbm_mlp_c{H}_s0"]
+    hold = {"bs_delta": ex.rule_holdings("bs_delta", ep, H, tuned)}
+    for j in jobs:
+        with torch.no_grad():
+            hold[j] = pol.rollout(ex.load_policy(j)[0], ep).double()
+    dates = np.array(ep.dates)
+    n_tail = int(round(0.05 * len(dates)))
+    out = {"n": len(dates), "worst_years": {}, "worst3": {}}
+    for k, Hk in hold.items():
+        tot = ex.score(Hk, ep, H)[0].numpy()
+        w = np.argsort(tot)[:n_tail]
+        yrs = {}
+        for i in w:
+            yrs[dates[i][:4]] = yrs.get(dates[i][:4], 0) + 1
+        out["worst_years"][k] = dict(sorted(yrs.items()))
+        out["worst3"][k] = [[str(dates[i]), float(tot[i])] for i in w[:3]]
+    df, _ = ex.clean_df(idx)
+    px = df.set_index(pd.to_datetime(df["date"]))["adjclose"]
+    r = np.log(px).diff().dropna()
+    big = r.abs().idxmax()
+    out["largest_move"] = {"date": str(big.date()), "log_return": float(r[big])}
+    # the network's worst window, and the day before the big move inside it
+    net = jobs[0]
+    i = int(np.argmin(ex.score(hold[net], ep, H)[0].numpy()))
+    days = px.index[px.index.get_loc(pd.Timestamp(str(dates[i]))):][:sp.STEPS + 1]
+    if big in days:
+        t = list(days).index(big) - 1
+        out["jump_window"] = {"sold": str(dates[i]), "day_before": str(days[t].date()),
+                              "delta_held": float(hold["bs_delta"][i, t]),
+                              "net_held": float(hold[net][i, t]),
+                              "index_move": float(ep.episode[i, t + 1] - ep.episode[i, t])}
+    return out
+
+
 # ------------------------------------------------------------------ 4. errors
 
 def realised_vol_episode(ep):
@@ -352,6 +525,15 @@ def extras():
 
 if __name__ == "__main__":
     torch.set_num_threads(int(os.environ.get("THREADS", "14")))
+    if sys.argv[1:] == ["explain"]:          # only the two interpretation steps
+        res = ex.load("analysis.json")
+        res["explain_mlp"] = explain_mlp()
+        res["band_regime"] = band_regime()
+        res["contrasts"] = contrasts()
+        res["calib_era"] = calib_era_diagnostic()
+        ex.save("analysis.json", res)
+        print("explain done")
+        raise SystemExit(0)
     res = {"extras": extras()}
     print("extras done")
     res["zero_cost"] = zero_cost_control()
@@ -362,6 +544,12 @@ if __name__ == "__main__":
     res["errors"] = error_analysis()
     res["effective_vol"] = effective_vols()
     print("effective vol:", {c: round(v["10"]["ratio"], 3) for c, v in res["effective_vol"].items()})
+    res["explain_mlp"] = explain_mlp()
+    res["band_regime"] = band_regime()
+    res["contrasts"] = contrasts()
+    res["calib_era"] = calib_era_diagnostic()
+    print("explained share of the MLP gain:",
+          {c: round(v["share_explained"], 2) for c, v in res["explain_mlp"]["by_cost"].items()})
     res["regimes"] = regime_buckets()
     print("regime buckets done")
     import rates
