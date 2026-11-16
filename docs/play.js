@@ -50,10 +50,10 @@
     const prem = L.bs(100, L.T, G.sigma).price;
     const tuned = TUNED[String(G.cost)];
     const rows = [
-      ["You", G.H, css("--accent")],
+      ["You", G.H, "#c2185b"],
       ["Black-Scholes delta", L.deltaH(G.S, G.sigma), "#5b5b55"],
-      ["Whalley-Wilmott band", L.wwH(G.S, G.sigma, G.cost, tuned.ww_gamma), "#2e6f8e"],
-      ["Neural network (MLP)", L.policyH(M["mlp_" + G.cost], G.S, G.sigma), "#b4462e"],
+      ["Whalley-Wilmott band", L.wwH(G.S, G.sigma, G.cost, tuned.ww_gamma), "#0f8b8d"],
+      ["Neural network (MLP)", L.policyH(M["mlp_" + G.cost], G.S, G.sigma), "#1f78c1"],
     ];
     G.compare = rows;
     const res = rows.map(([n, H]) => [n, L.pnl(G.S, H, G.cost, prem)]);
@@ -83,7 +83,7 @@
         tr.push({ x: [...Array(30).keys()], y: H, mode: "lines", name: n, line: { shape: "hv", color: c, width: n === "You" ? 3 : 1.8 }, xaxis: "x2", yaxis: "y2" });
     } else {
       tr.push({ x: [...Array(G.H.length).keys()], y: G.H, mode: "lines+markers", name: "your holding",
-                line: { shape: "hv", color: css("--accent"), width: 3 }, xaxis: "x2", yaxis: "y2" });
+                line: { shape: "hv", color: "#c2185b", width: 3 }, xaxis: "x2", yaxis: "y2" });
       if ($("g-hint").checked) {
         const d = []; for (let t = 0; t <= Math.min(G.day, 29); t++) d.push(L.bs(G.S[t], L.T * (1 - t / 30), G.sigma).delta);
         tr.push({ x: [...Array(d.length).keys()], y: d, mode: "lines", name: "Black-Scholes delta",
@@ -93,7 +93,7 @@
     const lo = Math.min(...G.S.slice(0, shown + 1), 97), hi = Math.max(...G.S.slice(0, shown + 1), 103);
     Plotly.react("fig-game", tr, {
       paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-      font: { family: "Inter, sans-serif", size: 12.5, color: css("--ink") },
+      font: { family: "Manrope, sans-serif", size: 12.5, color: css("--ink") },
       grid: { rows: 2, columns: 1, pattern: "independent", roworder: "top to bottom" },
       xaxis: { range: [-0.5, 30.5], gridcolor: css("--rule"), showticklabels: false },
       yaxis: { title: "index", range: [lo - 1, hi + 1], gridcolor: css("--rule") },
@@ -130,7 +130,7 @@
       if (i % 500 === 499) await new Promise((res) => setTimeout(res, 0));
     }
     const ms = performance.now() - t0;
-    const cols = ["#5b5b55", "#2e6f8e", "#b4462e", "#2f7d4f"];
+    const cols = ["#5b5b55", "#0f8b8d", "#1f78c1", "#2f7d4f"];
     const stats = out.map((o) => {
       const a = Array.from(o.pnl); const m = a.reduce((s, v) => s + v, 0) / n;
       const sd = Math.sqrt(a.reduce((s, v) => s + (v - m) * (v - m), 0) / (n - 1));
@@ -143,7 +143,7 @@
       line: { color: cols[j], width: 2, dash: "dash" } }));
     Plotly.react("fig-lab", tr, {
       barmode: "overlay", paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-      font: { family: "Inter, sans-serif", size: 12.5, color: css("--ink") },
+      font: { family: "Manrope, sans-serif", size: 12.5, color: css("--ink") },
       xaxis: { title: "P&L per 100 notional (dashed lines: CVaR95, the mean of the worst 5%)", range: [lo, hi], gridcolor: css("--rule") },
       yaxis: { title: "density", gridcolor: css("--rule") }, shapes,
       margin: { l: 56, r: 12, t: 8, b: 48 }, legend: { orientation: "h", y: -0.2 },

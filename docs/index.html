@@ -7,10 +7,10 @@
 <meta name="description" content="ES 335 project: can a neural network learn when not to trade? Hedging a short option under transaction costs on NIFTY 50 and S&P 500.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23b4462e'/%3E%3Cpath d='M6 22 L13 15 L18 19 L26 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f78c1'/%3E%3Cpath d='M6 22 L13 15 L18 19 L26 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
 
@@ -172,7 +172,7 @@ The market (the true data-generating process), our <em>sample</em> of it (about 
   <div class="controls"><span>Index</span><div class="seg" id="seg-surprise">
     <button data-v="NIFTY50" class="on">NIFTY 50</button><button data-v="SP500">S&amp;P 500</button></div></div>
   <div id="fig-surprise" class="plot"></div></div>
-  <figcaption><b>How wrong was the volatility quote?</b> Distribution of the log ratio of realised to quoted volatility over 30-day windows, training era. GBM (grey) almost never surprises. The daily-moment Heston (amber) surprises far too often and too hard. The horizon-calibrated Heston (blue) is the one we train on.</figcaption>
+  <figcaption><b>How wrong was the volatility quote?</b> Distribution of the log ratio of realised to quoted volatility over 30-day windows, training era. GBM (grey) almost never surprises. The daily-moment Heston (pink) surprises far too often and too hard. The horizon-calibrated Heston (teal) is the one we train on.</figcaption>
 </figure>
 
 <div class="tbl-wrap wrap" id="tbl-calib"></div>
@@ -319,7 +319,7 @@ The market (the true data-generating process), our <em>sample</em> of it (about 
 
 <div class="prose" id="results-prose-2">
 <h3>What the MLP learned: delta at a higher volatility</h3>
-<p>The plain MLP is never told about bands. In the explorer below, its resting holding (dashed red) sits close to Black-Scholes delta at every index level, but on a flatter curve, the shape delta takes when volatility is higher. Fitting one "effective" volatility to its resting holdings at the money, mid-life, gives <span data-k="effective_vol.0.10.ratio" data-f="d2"></span> times the true volatility at zero cost, rising to <span data-k="effective_vol.50.10.ratio" data-f="d2"></span> times at 50 bps.</p>
+<p>The plain MLP is never told about bands. In the explorer below, its resting holding (dashed blue) sits close to Black-Scholes delta at every index level, but on a flatter curve, the shape delta takes when volatility is higher. Fitting one "effective" volatility to its resting holdings at the money, mid-life, gives <span data-k="effective_vol.0.10.ratio" data-f="d2"></span> times the true volatility at zero cost, rising to <span data-k="effective_vol.50.10.ratio" data-f="d2"></span> times at 50 bps.</p>
 <p>The zero-cost part surprised us. With no fees the textbook answer is delta, and the network stays close to it, with an average gap of <span data-k="zero_cost.gbm_mlp_c0_s0.mean_abs_dev_from_delta" data-f="d3"></span> and a correlation of <span data-k="zero_cost.gbm_mlp_c0_s0.corr_with_delta" data-f="d3"></span>. Yet it beats delta's tail by <span data-k="derived.zero_gain_mlp" data-f="d3"></span>. At zero cost the mean cannot move (section 5), so this is pure reshaping, and the reason can be written down. Hedging at a volatility \(\hat\sigma\) above the true \(\sigma\) costs a fixed amount on every path, the gap between the two premiums, and pays back \(\tfrac12(\hat\sigma^2-\sigma^2)\int S^2\,\Gamma_{\hat\sigma}\,dt\). That payback is large on the paths that stay near the strike, where gamma is high and daily rebalancing leaks most, so the inflation buys protection where the tail lives. On the validation set, delta at \(\sigma \times c\) traces a U in tail loss with its best value near \(c \approx 1.1\) to \(1.15\), right where the network sits, and that one-number rule recovers <span data-k="derived.explain_share_0" data-f="pct0"></span> of the network's zero-cost gain.</p>
 <h3>With costs, the MLP behaves like Leland's rule plus that margin</h3>
 <p>As cost rises, the effective volatility climbs on top of the zero-cost margin. That is what Leland's rule does: it hedges at a volatility inflated by an amount linear in the cost. Two tests of the resemblance. First, the shape: the extra variance the network adds grows in proportion to cost at every volatility we checked, as Leland's does, but it hardly depends on the level of volatility, where Leland's falls like \(1/\sigma\). So the network found Leland's direction, not Leland's formula. Second, a rule built from this reading, Leland's delta with its volatility multiplied by <span data-k="derived.explain_c0" data-f="d2"></span> (the network's zero-cost inflation, read off its holdings, not tuned on P&amp;L), recovers <span data-k="derived.explain_share_10" data-f="pct0"></span> of the MLP's advantage over delta at 10 bps and <span data-k="derived.explain_share_50" data-f="pct0"></span> at 50 bps on the validation set. What it misses grows with cost, and the inertia chart below shows what it is: the MLP leaves part of the gap to its target open, more so as cost rises, which no rule that rebalances every day can do.</p>
@@ -332,7 +332,7 @@ The market (the true data-generating process), our <em>sample</em> of it (about 
   </div>
   <div id="fig-band" class="plot tall"></div>
   <div class="readout" id="band-readout"></div></div>
-  <figcaption><b>Explore the no-trade band.</b> For each index level, the blue region is where Whalley-Wilmott would not trade and the green lines are the edges the band network learned. The dashed red line is where the plain MLP settles. Slide the cost up and watch the bands open; slide toward expiry and watch them pinch away from the strike, where delta is nearly 0 or 1.</figcaption>
+  <figcaption><b>Explore the no-trade band.</b> For each index level, the shaded teal region is where Whalley-Wilmott would not trade and the green lines are the edges the band network learned. The dashed blue line is where the plain MLP settles. Slide the cost up and watch the bands open; slide toward expiry and watch them pinch away from the strike, where delta is nearly 0 or 1.</figcaption>
 </figure>
 
 <figure class="wide"><div class="fig"><div id="fig-response" class="plot"></div></div>

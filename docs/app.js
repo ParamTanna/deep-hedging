@@ -18,9 +18,9 @@ const NAMES = {
   gru: "Recurrent (GRU)",
 };
 const COLORS = {
-  unhedged: "#9a9a92", bs_delta: "#5b5b55", leland: "#8c6bb1", band: "#d39a2f",
-  ww: "#2e6f8e", mlp: "#b4462e", ntb: "#2f7d4f", mlpq: "#a0522d",
-  mlprv: "#e07b39", ntbrv: "#3aa38a", gru: "#c2185b",
+  unhedged: "#9a9a92", bs_delta: "#5b5b55", leland: "#8c6bb1", band: "#c06c9a",
+  ww: "#0f8b8d", mlp: "#1f78c1", ntb: "#2f7d4f", mlpq: "#6b86b8",
+  mlprv: "#5fb3e8", ntbrv: "#7bbf6a", gru: "#c2185b",
 };
 const DASH = { unhedged: "dot", bs_delta: "solid", leland: "dashdot", band: "dash", ww: "solid" };
 
@@ -65,12 +65,12 @@ function baseLayout(extra) {
   const ink = css("--ink"), ink3 = css("--ink-3"), rule = css("--rule");
   return Object.assign({
     paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "Inter, system-ui, sans-serif", size: 13, color: ink },
+    font: { family: "Manrope, system-ui, sans-serif", size: 12.5, color: ink },
     margin: { l: 62, r: 18, t: 18, b: 52 },
     xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickfont: { color: ink3 } },
     yaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickfont: { color: ink3 } },
     legend: { orientation: "h", y: -0.22, font: { size: 12 } },
-    hoverlabel: { font: { family: "Inter, sans-serif" } },
+    hoverlabel: { font: { family: "Manrope, sans-serif" } },
   }, extra || {});
 }
 const CFG = { displaylogo: false, responsive: true,
@@ -217,7 +217,7 @@ function drawBand() {
   if (!base) return;
   const S = base.S, tr = [];
   tr.push({ x: S, y: base.ww_hi, mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" });
-  tr.push({ x: S, y: base.ww_lo, mode: "lines", fill: "tonexty", fillcolor: "rgba(46,111,142,0.16)",
+  tr.push({ x: S, y: base.ww_lo, mode: "lines", fill: "tonexty", fillcolor: "rgba(15,139,141,0.16)",
             line: { width: 0 }, name: "Whalley-Wilmott: no trade in here", hoverinfo: "skip" });
   if (n) {
     tr.push({ x: S, y: n.hi, mode: "lines", line: { color: COLORS.ntb, width: 2.6 }, name: "Band net: learned no-trade edges",
