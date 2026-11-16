@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>ui test</title>
+<pre id="out">running</pre>
+<iframe id="f" src="../docs/index.html" style="width:1300px;height:900px"></iframe>
+<script>
+const log = [];
+const done = (ok) => { document.getElementById("out").textContent = (ok ? "PASS\n" : "FAIL\n") + log.join("\n"); };
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+document.getElementById("f").addEventListener("load", async () => {
+  try {
+    const w = document.getElementById("f").contentWindow, d = w.document, $ = (id) => d.getElementById(id);
+    for (let i = 0; i < 80 && !(w.Lab && $("g-day") && $("g-day").textContent); i++) await wait(100);
+    log.push("game starts on: " + $("g-day").textContent);
+    // play the whole game holding exactly the Black-Scholes delta each day
+    for (let t = 0; t < 30; t++) {
+      $("g-hold").value = $("g-delta").textContent || "0.5";
+      $("g-hold").dispatchEvent(new w.Event("input"));
+      $("g-go").click();
+      await wait(15);
+    }
+    for (let i = 0; i < 80 && !$("g-result").querySelector("table"); i++) await wait(100);
+    const rows = [...$("g-result").querySelectorAll("tbody tr")].map((r) => [...r.cells].map((c) => c.textContent));
+    rows.forEach((r) => log.push("  " + r.join(" | ")));
+    log.push("after 30 days the panel says: " + $("g-day").textContent + ", button disabled: " + $("g-go").disabled);
+    const you = +rows[0][1], delta = +rows[1][1];
+    // the slider has 0.01 steps, so "you" is delta rounded to 2 decimals: close, not identical
+    log.push("you (rounded delta) vs delta: " + you + " vs " + delta + ", gap " + Math.abs(you - delta).toFixed(3));
+    const errs = w.__errors || [];
+    done(rows.length === 4 && $("g-go").disabled && Math.abs(you - delta) < 0.25);
+  } catch (e) { log.push("exception: " + e); done(false); }
+});
+</script>
