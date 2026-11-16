@@ -222,7 +222,7 @@ The trained policies are committed in `results/models/`, so `evaluate`, `analysi
 
 ## Use of AI tools
 
-We used Claude (Anthropic) as a coding and writing assistant throughout the project: to implement and debug the simulation, training and evaluation code, to check derivations, and to draft and edit the README, notebook text and website. Every number in this repository comes from code in this repository, every component passes the correctness controls, and we checked the outputs ourselves. Decisions such as discarding the first Heston calibration came from examining the results. We take responsibility for all of it and can explain any part.
+We used Claude (Anthropic) as a coding and writing assistant; to debug the simulation, evaluate code, to check derivations, and to build the interactive website. Every number in this repository comes from code in this repository, every component passes the correctness controls, and we checked the outputs ourselves. Decisions such as discarding the first Heston calibration came from examining the results. We take responsibility for all of it and can explain any part.
 
 ## References
 
