@@ -274,7 +274,9 @@ function drawScaling() {
       { x: xs, y: xs.map((v) => Math.exp(ly + sc.exponent * (Math.log(v) - lx))), mode: "lines",
         line: { color: COLORS.ntb, width: 1.5 }, showlegend: false, hoverinfo: "skip" },
       { x: xs, y: xs.map((v) => Math.exp(ly + (Math.log(v) - lx) / 3)), mode: "lines",
-        line: { color: css("--ink-3"), dash: "dot", width: 2 }, name: "theory: slope 1/3" }],
+        line: { color: css("--ink-3"), dash: "dot", width: 2 }, name: "continuous trading: slope 1/3" },
+      { x: xs, y: xs.map((v) => Math.exp(ly + (Math.log(v) - lx))), mode: "lines",
+        line: { color: css("--ink-3"), dash: "dash", width: 1.5 }, name: "one decision per step: slope 1" }],
       { xaxis: { title: "transaction cost (bps, log scale)", type: "log", tickvals: [5, 10, 20, 50], gridcolor: css("--rule") },
         yaxis: { title: "learned half-width at the money (log)", type: "log", gridcolor: css("--rule") } });
   }

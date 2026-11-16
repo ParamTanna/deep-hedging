@@ -17,7 +17,7 @@
 <div class="topbar"><div class="inner">
   <a class="brand" href="#top">Deep hedging under costs</a>
   <nav class="nav">
-    <a href="#question">Question</a><a href="#data">Data</a><a href="#prep">Preprocessing</a>
+    <a href="#question">Question</a><a href="#play">Play</a><a href="#data">Data</a><a href="#prep">Preprocessing</a>
     <a href="#methods">Methods</a><a href="#eval">Evaluation</a><a href="#results">Results</a>
     <a href="#errors">Errors</a><a href="#limits">Limitations</a><a href="#conclusion">Conclusion</a>
     <a href="#reproduce">Reproduce</a>
@@ -32,16 +32,16 @@
   <h1>Can a neural network learn when <em>not</em> to trade?</h1>
   <p class="lede">We sell a 30-day option and hedge it every day. Black-Scholes says exactly how much to hold, but only if trading is free. It never is. We train a network to hedge under real trading costs, test it on simulated and real NIFTY 50 and S&amp;P 500 history, and check whether it rediscovers the no-trade band that theory predicts.</p>
   <p class="byline">Param Tanna (24110236) &middot; Pranav Magarde (24110269) &middot;
-    <a href="https://github.com/REPO_OWNER/deep-hedging">code and notebook on GitHub</a></p>
+    <a href="https://github.com/ParamTanna/deep-hedging">code and notebook on GitHub</a></p>
 </header>
 
 <div class="headline-nums" id="headline-nums">
   <div class="num-card"><div class="big"><span data-k="derived.gbm_gain_pct_mlp" data-f="pct"></span></div>
     <div class="what">smaller tail loss (CVaR<sub>95</sub>) than Black-Scholes delta hedging at 10 bps, on 100,000 held-out simulated episodes</div></div>
-  <div class="num-card"><div class="big">cost<sup><span data-k="band_scaling.mlp.exponent" data-f="d2"></span></sup></div>
-    <div class="what">how the width of the network's self-taught no-trade band grows with cost. Theory says cost<sup>1/3</sup>, and nobody told the network.</div></div>
-  <div class="num-card"><div class="big" id="hn-real">see results</div>
-    <div class="what" id="hn-real-what">on real market data from 2019 onward, the honest picture is more nuanced.</div></div>
+  <div class="num-card"><div class="big">cost<sup><span data-k="band_scaling.ntb.exponent" data-f="d2"></span></sup></div>
+    <div class="what">how the band network's learned no-trade width grows with cost. The textbook says cost<sup>1/3</sup>, but that assumes continuous trading; with one trade a day the width should grow faster, and it does.</div></div>
+  <div class="num-card"><div class="big" id="hn-real"><span data-k="derived.real_hes_gain_min_all" data-f="pct0"></span> to <span data-k="derived.real_hes_gain_max_all" data-f="pct0"></span></div>
+    <div class="what" id="hn-real-what">smaller tail loss than delta on real NIFTY 50 and S&amp;P 500 options sold from 2019 on, for networks trained only on our calibrated simulator. Against the best tuned rule the lead is smaller, and only partly significant.</div></div>
 </div>
 
 <!-- ============================================================ 1 -->
@@ -57,6 +57,9 @@
 <div class="note"><span class="tag">The research question</span>
 For a short 30-day at-the-money call on an equity index, rebalanced once per trading day under a proportional transaction cost, which hedging policy gives the best tail outcome, measured by the CVaR at 95% of terminal profit and loss net of all fees? And does a neural policy trained only on that objective learn the no-trade structure that cost-aware rules build in by hand?</div>
 
+<h3>Where this sits in the machine learning loop</h3>
+<p>Most prediction problems run data, representation, model, score, decision: the model produces a score, a threshold turns it into an action, and the cost of that action is judged afterwards. Here the model's output <em>is</em> the action (how much of the index to hold) and the loss <em>is</em> the realised cost of that action, the P&amp;L after fees. There is no proxy target and no threshold between the model and the decision, which is what lets us train on exactly the quantity we care about. The price is that we need a simulator of the market to train on, and a simulator is a model of the data-generating process, not the process. Much of the care in this project goes into not confusing the two.</p>
+
 <h3>Unit of analysis, target, and what is known when</h3>
 <p><strong>One row is one episode</strong>: one option sold at an inception date and hedged until it expires. Inside an episode the policy makes 30 decisions, one per trading day, each choosing how many units of the index to hold until the next day. There is <strong>no target variable</strong> in the supervised sense, because nobody knows the correct hedge under costs (that is the open problem). Instead each policy is judged by the distribution of terminal profit and loss over many episodes.</p>
 <p><strong>At each decision the policy may use only what a desk knows at that moment</strong>: index prices up to today, the holding it currently has, the time left to expiry, the volatility it quoted when it sold the option, and the volatility realised over recent days. It never sees a future price. This is enforced in the code by tests that change future prices and check that no earlier decision moves.</p>
@@ -64,6 +67,38 @@ For a short 30-day at-the-money call on an equity index, rebalanced once per tra
 <h3>Limits of the claim</h3>
 <p>We study one contract (an at-the-money call with 30 trading days to expiry), a proportional cost with no market impact, a zero interest rate and no dividends. The volatility quote comes from past index returns because we have no option market data, so we cannot speak to how a real desk prices with implied volatility. Real-data conclusions rest on about seven years of history containing a handful of independent stress events, and we say so wherever it matters. Our claims are about tail risk of hedged positions, not about making money from selling options.</p>
 </div>
+</section>
+
+<!-- ============================================================ play -->
+<section id="play">
+<div class="prose">
+<div class="sec-no">Try it before the theory</div>
+<h2>Hedge it yourself</h2>
+<p>You have just sold the call for the premium shown below and the clock is running. Each trading day you see the index and choose how many units of it to hold until tomorrow, between 0 and 1. Every change in your holding costs 10 bps of the value traded. After 30 days the option expires, you settle with the buyer, and your result is put next to Black-Scholes delta, the Whalley-Wilmott band and our trained network on the same path. Press <i>Enter</i> to advance a day.</p>
+</div>
+<figure class="wide"><div class="fig">
+  <div class="game">
+    <div id="fig-game" class="plot"></div>
+    <div class="game-panel">
+      <div class="gp-row"><span>Premium you collected</span><b id="g-prem"></b></div>
+      <div class="gp-row"><span>Today</span><b id="g-day"></b></div>
+      <div class="gp-row"><span>Index</span><b id="g-price"></b></div>
+      <div class="gp-row"><span>Delta, if you want a hint</span><b id="g-delta"></b></div>
+      <div class="gp-row"><span>Fees paid so far</span><b id="g-fees"></b></div>
+      <label class="gp-slider">Hold until tomorrow: <b id="g-hold-v"></b>
+        <input type="range" id="g-hold" min="0" max="1" step="0.01" value="0.5"></label>
+      <button class="btn primary" id="g-go">Trade and go to next day</button>
+      <div class="gp-opts">
+        <label><input type="checkbox" id="g-hint"> draw delta</label>
+        <label>Market <select id="g-vol"><option value="12">calm, 12%</option><option value="18" selected>normal, 18%</option><option value="35">stormy, 35%</option></select></label>
+      </div>
+      <button class="btn" id="g-new">New path</button>
+    </div>
+  </div>
+  <div id="g-result" class="game-result"></div>
+</div>
+<figcaption><b>A single path is mostly luck.</b> That is the first lesson of this game and the reason the rest of this page measures strategies over thousands of paths, by the average of their worst 5% of outcomes.</figcaption>
+</figure>
 </section>
 
 <!-- ============================================================ 2 -->
@@ -125,6 +160,9 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
   <li><strong>Heston</strong>, where volatility is itself random and mean-reverting: \(dv = \kappa(\theta - v)\,dt + \xi\sqrt{v}\,dW_2\), correlated with the price shock by \(\rho\). Here, as on real data, the desk does not know the volatility and must quote it from history.</li>
 </ul>
 
+<div class="note"><span class="tag">Four objects we keep apart</span>
+The market (the true data-generating process), our <em>sample</em> of it (about 7,000 days per index), our <em>simulator</em> fitted to that sample, and the <em>policy</em> trained on the simulator. Training on simulated paths is only safe if we never mistake the third for the first. So every policy is tested on real history the simulator never saw, and the gap between simulated and real performance is reported as a result, not hidden.</div>
+
 <h3>The simulator we threw away</h3>
 <p>Our first Heston calibration matched the four daily moments everyone checks first: volatility, kurtosis, skewness and the autocorrelation of squared returns. It looked reasonable. Then we compared it with the training-era real data on the only thing a hedger cares about, and it was badly wrong.</p>
 <p>To first order, the P&amp;L of a delta-hedged short option over one step is</p>
@@ -163,6 +201,7 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <p>Rather than picking a frequency, let your holding drift until it is far enough from delta to be worth fixing. Call the allowed drift \(H\). Inside that band your mis-hedge has variance of order \(H^2\), so the risk you carry costs something like \(\gamma\sigma^2S^2H^2\) for a risk aversion \(\gamma\). Meanwhile delta wanders at rate \(\Gamma\sigma S\), and the holding hits the band edge at a rate proportional to \((\Gamma\sigma S)^2/H\), paying \(kS\) per unit traded. Minimise the sum of the two over \(H\):</p>
 <div class="eq">$$\frac{d}{dH}\Big[\gamma\sigma^2S^2H^2 + \frac{kS\,\Gamma^2\sigma^2S^2}{H}\Big] = 0 \quad\Longrightarrow\quad H^3 \propto \frac{k\,S\,\Gamma^2}{\gamma}, \qquad H \propto k^{1/3}.$$</div>
 <p>This is the Whalley-Wilmott band, here in three lines. Its full form is \(H = \big(\tfrac32\,k S \Gamma^2/\gamma\big)^{1/3}\). Two things are worth reading off it. The band is widest where gamma is large, near the strike and close to expiry, which is exactly where delta moves fastest and chasing it costs most. And it grows with the cube root of cost: double the cost and the band widens by about 26%, not 100%.</p>
+<p>That argument assumes the holding drifts smoothly into the edge of the band, which needs continuous trading. With one decision a day, delta can jump past a narrow band in a single step, and the trade-off is then made step by step instead: keep a gap \(x\) and carry risk of order \(x^2\) for a day, or pay \(k|x|\) to close it. That puts the threshold at a multiple of \(k\) itself. Section 6 measures which regime we are in.</p>
 
 <h3>Step 4: why learn anything?</h3>
 <p>Whalley-Wilmott answers a nearby problem, not ours. It is an asymptotic result for small costs, derived for exponential utility rather than tail risk, for continuous monitoring rather than once a day, and for a known volatility. Our problem is the exact one: CVaR of the actual P&amp;L of a 30-step discrete hedge, with a volatility that has to be guessed. Nobody has a formula for that. A policy trained directly on it is not a fashion choice, it is the most direct way to optimise the objective we actually care about.</p>
@@ -203,7 +242,7 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">5 &middot; Evaluation strategy</div>
 <h2>How we keep ourselves honest</h2>
-<p>Everything in this section was fixed in code before any test number was computed, so no choice below could have been tuned to flatter a result.</p>
+<p>Everything in this section was fixed in code before any test number was computed, so no choice below could have been tuned to flatter a result. That includes the cost levels: like the prices of mistakes in any decision problem, they are an input to the problem, chosen before any model was trained, not a knob to turn afterwards.</p>
 
 <h3>Splits</h3>
 <ul>
@@ -223,6 +262,16 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <h3>Uncertainty</h3>
 <p>Every CVaR comes with a 95% bootstrap interval, and so does every difference between a strategy and delta hedging. The bootstrap is <strong>paired</strong>: in each resample all strategies are scored on the same episodes, so the interval of a difference reflects only the strategies and not which paths happened to be drawn. On real data, neighbouring windows share 29 of their 30 days, so treating them as independent would make the intervals far too narrow. We use a <strong>moving-block bootstrap</strong> with blocks of 30 trading days instead.</p>
 
+<h3>What each statistical test can and cannot establish</h3>
+<div class="tbl-wrap wrap"><table>
+<thead><tr><th>Test</th><th>Question it answers</th><th>What it cannot tell us</th></tr></thead>
+<tbody>
+<tr><td>Ljung-Box on returns and on absolute returns</td><td>Are the first 20 autocorrelations jointly zero? A large value rules out independent returns, which GBM assumes.</td><td>Which model is right instead. It rejects GBM; it does not choose Heston.</td></tr>
+<tr><td>Paired bootstrap interval of a CVaR difference</td><td>On this test distribution, is one strategy's tail loss different from another's, beyond the luck of which paths were drawn?</td><td>Whether the difference holds in another market or period. It measures sampling noise, not model error.</td></tr>
+<tr><td>Moving-block bootstrap on real windows</td><td>The same, allowing for the overlap between neighbouring windows.</td><td>It cannot create independent crises that did not happen. Seven years contain only a few, so real-data intervals stay wide.</td></tr>
+<tr><td>Mean P&amp;L at zero cost against zero</td><td>Is anything in the pipeline leaking information or mispricing? The martingale argument says every causal strategy must average exactly zero.</td><td>Whether the tails are right. A strategy can pass this and still have a poor CVaR.</td></tr>
+</tbody></table></div>
+
 <h3>Controls that must pass first</h3>
 <p>Before any comparison is trusted, the engine passes ten checks in <code>src/controls.py</code>: delta and gamma agree with finite differences of the price to \(10^{-8}\); at zero cost the tail shrinks monotonically with rebalancing and follows the \(\sqrt{\Delta t}\) law; the mean P&amp;L of delta hedging is statistically zero (the premium is fair); a band of width zero reproduces delta exactly; a very wide band never trades; Leland and Whalley-Wilmott reduce to delta at zero cost; and for every strategy, changing future prices leaves past decisions untouched. The learned policies pass the same causality test.</p>
 <p>The strongest control is for the network itself: <strong>train it at zero cost</strong>. The right answer there is known, close to Black-Scholes delta, so if the network does not land near it, something in the simulation or the gradients is broken.</p>
@@ -234,7 +283,13 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">6 &middot; Results</div>
 <h2>What we found</h2>
-<div id="results-prose"></div>
+<div id="results-prose">
+<p>Three questions, in order. Does learning beat the rules in the world it was trained in? What did it learn? And does any of it survive real markets?</p>
+<h3>In simulation, the networks beat every rule at every cost</h3>
+<p>At the headline cost of 10 bps, on 100,000 held-out GBM episodes, the plain MLP cuts the tail loss of delta hedging by <span data-k="derived.gbm_gain_pct_mlp" data-f="pct"></span> and the band network by <span data-k="derived.gbm_gain_pct_ntb" data-f="pct"></span>. Delta is the wrong yardstick for a claim about learning, though. The fair comparison is the best rule, which at 10 bps is Leland's: the networks beat it by <span data-k="derived.gbm10_mlp_vs_best_rule_pct" data-f="pct"></span> and <span data-k="derived.gbm10_ntb_vs_best_rule_pct" data-f="pct"></span> of its tail loss, and the paired 95% intervals of both differences exclude zero. The lead grows with cost. At 50 bps the band network beats the best rule there, Whalley-Wilmott, by <span data-k="derived.gbm50_ntb_vs_best_rule_pct" data-f="pct"></span>. Retraining with two other seeds moves the test CVaR by at most <span data-k="derived.seed_spread_mlp" data-f="d3"></span> for the MLP and <span data-k="derived.seed_spread_ntb" data-f="d3"></span> for the band network, small next to these gaps.</p>
+<p>The order of the rules is informative in itself. A constant band, tuned on validation, barely improves on delta at 10 bps: a band that ignores gamma is wide where it should be narrow and narrow where it should be wide. Whalley-Wilmott, whose band follows gamma, does better. Leland, which simply hedges at a higher volatility, does best below 50 bps. Keep that last fact in mind; it comes back when we ask what the MLP learned.</p>
+<p>Two checks on the training setup. The same MLP trained on a quadratic loss instead of CVaR improves on delta's tail by only <span data-k="derived.gbm_gain_pct_mlpq" data-f="pct"></span>: choosing the loss is choosing which mistakes matter. And the hidden width matters only up to a point. Going from 8 to 16 units moves the test CVaR from <span data-k="gbm.10.gbm_mlp_w8_c10_s0.cvar95" data-f="d3"></span> to <span data-k="gbm.10.gbm_mlp_w16_c10_s0.cvar95" data-f="d3"></span>; going all the way from 16 to 128 adds less than that, ending at <span data-k="gbm.10.gbm_mlp_w128_c10_s0.cvar95" data-f="d3"></span>. The function being learned maps a handful of inputs to one number, and a small network has room for it.</p>
+</div>
 </div>
 
 <figure class="wide"><div class="fig">
@@ -247,7 +302,30 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 
 <div class="wide"><div class="tbl-wrap" id="tbl-headline"></div></div>
 
-<div class="prose" id="results-prose-2"></div>
+<div class="prose">
+<h3>A laboratory with the trained network running in your browser</h3>
+<p>The numbers above come from our Python pipeline. Here you can rerun the experiment yourself, at any volatility. The page simulates fresh paths in JavaScript and hedges each one with Black-Scholes delta, the Whalley-Wilmott band and the two trained networks, using the actual weights they learned. We checked that this JavaScript port reproduces the Python engine and the networks to about \(10^{-13}\) on identical paths (<code>tests/check_lab.js</code>).</p>
+</div>
+<figure class="wide"><div class="fig">
+  <div class="controls">
+    <label>Cost <select id="lab-cost"><option value="0">0 bps</option><option value="5">5 bps</option><option value="10" selected>10 bps</option><option value="20">20 bps</option><option value="50">50 bps</option></select></label>
+    <label>Volatility <input type="range" id="lab-vol" min="8" max="60" step="1" value="18"> <span class="val" id="lab-vol-v"></span></label>
+    <label>Paths <select id="lab-n"><option value="1000">1,000</option><option value="2000" selected>2,000</option><option value="5000">5,000</option></select></label>
+    <button class="btn primary" id="lab-run">Run the experiment</button>
+  </div>
+  <div id="fig-lab" class="plot"></div>
+  <div class="readout" id="lab-readout">Press run. Nothing here is precomputed.</div>
+  <div class="tbl-wrap" id="lab-table" style="padding:0 10px"></div></div>
+  <figcaption><b>Distribution of final P&amp;L per strategy</b>, with each strategy's CVaR<sub>95</sub> as a dashed line. Try 50 bps at 40% volatility, where the cost-aware strategies pull clearly away from delta.</figcaption>
+</figure>
+
+<div class="prose" id="results-prose-2">
+<h3>What the MLP learned: delta at a higher volatility</h3>
+<p>The plain MLP is never told about bands. In the explorer below, its resting holding (dashed red) sits close to Black-Scholes delta at every index level, but on a flatter curve, the shape delta takes when volatility is higher. Fitting one "effective" volatility to its resting holdings at the money, mid-life, gives <span data-k="effective_vol.0.10.ratio" data-f="d2"></span> times the true volatility at zero cost, rising to <span data-k="effective_vol.50.10.ratio" data-f="d2"></span> times at 50 bps.</p>
+<p>The zero-cost part surprised us. With no fees, the textbook answer is delta, and the network does stay close to it: an average gap of <span data-k="zero_cost.gbm_mlp_c0_s0.mean_abs_dev_from_delta" data-f="d3"></span> and a correlation of <span data-k="zero_cost.gbm_mlp_c0_s0.corr_with_delta" data-f="d3"></span>. Yet it beats delta's tail by <span data-k="derived.zero_gain_mlp" data-f="d3"></span>. At zero cost the mean cannot move (section 5), so this is pure reshaping, and there is a reason we can write down. Hedging at a volatility \(\hat\sigma\) above the true \(\sigma\) costs a fixed amount on every path, the gap between the two premiums, and pays back \(\tfrac12(\hat\sigma^2-\sigma^2)\int S^2\,\Gamma_{\hat\sigma}\,dt\). That payback is large on exactly the paths that spend their life near the strike, where gamma is high and daily rebalancing leaks most. The inflation buys protection where the tail lives. On the validation set, delta at \(\sigma \times c\) traces a U in tail loss with its best value near \(c \approx 1.1\) to \(1.15\), right where the network sits, and that one-number rule recovers <span data-k="derived.explain_share_0" data-f="pct0"></span> of the network's zero-cost gain.</p>
+<h3>With costs, the MLP behaves like Leland's rule plus that margin</h3>
+<p>As cost rises, the effective volatility climbs on top of the zero-cost margin. That is what Leland's rule does: it hedges at a volatility inflated by an amount linear in the cost. We tested the resemblance twice. First, the shape. The extra variance the network adds grows in proportion to cost at every volatility we checked, as Leland's does, but it hardly depends on the level of volatility, where Leland's falls like \(1/\sigma\). So the network found Leland's direction, not Leland's formula. Second, a rule built from this reading, Leland's delta with its volatility multiplied by <span data-k="derived.explain_c0" data-f="d2"></span> (the network's zero-cost inflation, read off its holdings, not tuned on P&amp;L), recovers <span data-k="derived.explain_share_10" data-f="pct0"></span> of the MLP's advantage over delta at 10 bps and <span data-k="derived.explain_share_50" data-f="pct0"></span> at 50 bps on the validation set. What it misses grows with cost, and the inertia chart below shows what that is: the MLP leaves part of the gap to its target open, more so as cost rises, which no rule that rebalances to a target every day can do.</p>
+</div>
 
 <figure class="wide"><div class="fig">
   <div class="controls">
@@ -256,19 +334,32 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
   </div>
   <div id="fig-band" class="plot tall"></div>
   <div class="readout" id="band-readout"></div></div>
-  <figcaption><b>Explore the no-trade band.</b> For each index level, the shaded blue region is where Whalley-Wilmott would not trade. The red lines are where the MLP stops trading, measured by asking it, for every possible current holding, whether it would change that holding. Nobody told it to leave a gap. Slide the cost up and watch both bands open; slide toward expiry and watch them narrow away from the strike.</figcaption>
+  <figcaption><b>Explore the no-trade band.</b> For each index level, the blue region is where Whalley-Wilmott would not trade and the green lines are the edges the band network learned. The dashed red line is where the plain MLP settles. Slide the cost up and watch the bands open; slide toward expiry and watch them pinch away from the strike, where delta is nearly 0 or 1.</figcaption>
 </figure>
 
-<div class="prose" id="results-prose-3"></div>
+<figure class="wide"><div class="fig"><div id="fig-response" class="plot"></div></div>
+  <figcaption><b>How each strategy reacts to what it already holds</b>, at the money with 15 days left, at the cost chosen above. Black-Scholes delta is flat: it trades to delta whatever it holds. A no-trade band is flat, then follows the grey diagonal (keep what you have), then flat again. The plain MLP is a tilted line: it trades most of the way to its target but keeps part of the gap.</figcaption>
+</figure>
+
+<div class="prose" id="results-prose-3">
+<h3>The band network, and a test of the cube-root law</h3>
+<p>The band network has the shape of a band built in, but not its width. Its learned half-width at the money, mid-life, grows from <span data-k="derived.ntb_halfwidth_min" data-f="d3"></span> at 5 bps to <span data-k="derived.ntb_halfwidth_max" data-f="d3"></span> at 50 bps, a power law with exponent <span data-k="band_scaling.ntb.exponent" data-f="d2"></span> (standard error <span data-k="band_scaling.ntb.exponent_se" data-f="d2"></span>, \(R^2\) = <span data-k="band_scaling.ntb.r2" data-f="d3"></span>). That is not the cube root from section 4. Our first suspicion was the network, so we refitted the two rules whose widths were tuned on validation separately at each cost, with no network involved. The constant band grows with exponent <span data-k="band_regime.band_exponent" data-f="d2"></span> and Whalley-Wilmott, once its risk aversion is retuned, with <span data-k="band_regime.ww_exponent" data-f="d2"></span>. All three grow faster than the cube root.</p>
+<p>The reason is the one flagged in section 4. The cube-root argument assumes the holding drifts smoothly into the edge of the band. Here, at the money, delta moves by about <span data-k="band_regime.one_day_delta_move" data-f="d2"></span> in one day, more than the entire learned band. The edge is crossed by jumps, so the decision is made one step at a time: keeping a gap \(x\) adds risk of order \(x^2\) for a day, closing it costs \(k|x|\), and the threshold that balances the two grows like \(k\) itself. The measured exponents sit between the continuous-time \(1/3\) and the one-step \(1\). The network did not reproduce the textbook law. It found the law of the problem it was actually given, which is the better outcome.</p>
+</div>
 
 <div class="two wide">
   <figure><div class="fig"><div id="fig-scaling" class="plot"></div></div>
-    <figcaption><b>The cube-root law, rediscovered.</b> Learned half-width of the no-trade band at the money, mid-life, against cost on log axes. The dotted line has the theoretical slope of 1/3.</figcaption></figure>
-  <figure><div class="fig"><div id="fig-zero" class="plot"></div></div>
-    <figcaption><b>The zero-cost control.</b> Trained with no transaction cost, the MLP's hedge (solid) against Black-Scholes delta (dotted) at three times to expiry.</figcaption></figure>
+    <figcaption><b>The cube-root law, tested.</b> The band network's learned half-width at the money, mid-life, against cost on log axes. The dotted line has the continuous-trading slope of 1/3, the dashed line the slope of 1 expected when the position can only be corrected once a step.</figcaption></figure>
+  <figure><div class="fig"><div id="fig-inertia" class="plot"></div></div>
+    <figcaption><b>The plain MLP grows more reluctant to trade as cost rises</b>: the share of the gap to its target that it leaves open, at the money, mid-life.</figcaption></figure>
 </div>
+<figure class="wide"><div class="fig"><div id="fig-zero" class="plot"></div></div>
+  <figcaption><b>The zero-cost control.</b> Trained with no transaction cost, the MLP's hedge (solid) against Black-Scholes delta (dotted) at three times to expiry.</figcaption></figure>
 
-<div class="prose" id="results-prose-4"></div>
+<div class="prose" id="results-prose-4">
+<h3>The zero-cost control and the martingale check</h3>
+<p>The figure above is the control promised in section 5. Trained with no cost, the MLP's hedge lies on top of delta at all three times, with the slightly flatter shape explained earlier; its largest gap from delta anywhere on the test set is <span data-k="zero_cost.gbm_mlp_c0_s0.max_abs_dev" data-f="d2"></span>. On the same test set, every strategy's mean P&amp;L at zero cost is statistically zero, as the martingale argument requires: the largest \(|z|\) across all seven strategies is <span data-k="derived.zero_cost_max_abs_z" data-f="d2"></span>. The MLP's validation mean at the checkpoint we kept had been <span data-k="derived.zero_val_mean_z_mlp" data-f="d1"></span> standard errors above zero, the selection bias we expected from picking the best of <span data-k="derived.n_checkpoints" data-f="int"></span> checkpoints on one validation set. On untouched data it is <span data-k="derived.zero_test_mean_z_mlp" data-f="d1"></span>.</p>
+</div>
 
 <figure class="wide"><div class="fig">
   <div class="controls"><label>World <select id="world-sel">
@@ -284,7 +375,18 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 </figure>
 
 <div class="wide"><div class="tbl-wrap" id="tbl-real"></div></div>
-<div class="prose" id="results-prose-5"></div>
+<div class="prose" id="results-prose-s2r">
+<h3>Real markets: what survives</h3>
+<p>This is the test that matters. Every network was trained on simulated paths only. Here it meets NIFTY 50 and S&amp;P 500 options sold from January 2019 to the end of our data, <span data-k="real.NIFTY50.test_2019_on|n_windows" data-f="int"></span> and <span data-k="real.SP500.test_2019_on|n_windows" data-f="int"></span> overlapping windows, scored once. The intervals use the moving-block bootstrap and are wide for an honest reason: seven years of overlapping months contain far fewer independent ones.</p>
+<p>The networks trained on the calibrated Heston simulator cut the tail loss of delta hedging by <span data-k="derived.real_NIFTY50.hes_gain_pct_min" data-f="pct0"></span> to <span data-k="derived.real_NIFTY50.hes_gain_pct_max" data-f="pct0"></span> on NIFTY and <span data-k="derived.real_SP500.hes_gain_pct_min" data-f="pct0"></span> to <span data-k="derived.real_SP500.hes_gain_pct_max" data-f="pct0"></span> on the S&amp;P, and all six of those intervals exclude zero. Against the best rule the margin is smaller. On both indices that is the Whalley-Wilmott band tuned on the Heston simulator, picked for its score on this very test set, which flatters it. The best network is ahead of it by <span data-k="derived.real_NIFTY50.best_net_vs_rule_pct" data-f="pct0"></span> on NIFTY and <span data-k="derived.real_SP500.best_net_vs_rule_pct" data-f="pct0"></span> on the S&amp;P, but with this much data only one network per index clears significance against that rule: the GRU on NIFTY and the band network with realised volatility on the S&amp;P.</p>
+<p>The networks trained on plain GBM transfer much worse: <span data-k="derived.real_NIFTY50.gbm_mlp_gain_pct" data-f="pct0"></span> better than delta on NIFTY and <span data-k="derived.real_SP500.gbm_mlp_gain_pct" data-f="pct0"></span> on the S&amp;P, where the interval includes zero. Same architecture, same objective, different simulator. What the network was trained on shows up directly in how it trades real markets, which is the strongest argument in this project for spending effort on the simulator.</p>
+</div>
+<div class="wide"><div class="tbl-wrap" id="tbl-sim2real"></div></div>
+<div class="prose" id="results-prose-5">
+<h3>The sim-to-real gap, measured</h3>
+<p>The table above follows each strategy from GBM to the calibrated Heston world, then to the real years the simulator was fitted on, then to the real test years. Delta hedging is the cleanest yardstick because it has no parameters. In our Heston worlds its tail loss is <span data-k="derived.sim2real.NIFTY50.bs_delta.heston_sim" data-f="d2"></span> for NIFTY and <span data-k="derived.sim2real.SP500.bs_delta.heston_sim" data-f="d2"></span> for the S&amp;P, against <span data-k="derived.sim2real.NIFTY50.bs_delta.real_calib" data-f="d2"></span> and <span data-k="derived.sim2real.SP500.bs_delta.real_calib" data-f="d2"></span> in the real calibration years. The horizon calibration got the level of risk right, which the daily-moment calibration did not (section 3). The real test years are rougher than the calibration years on both indices, mostly because of March 2020.</p>
+<p>For the networks the gap has a sign we can explain. On the S&amp;P the Heston-trained networks beat delta in both real eras. On NIFTY's calibration era (2007 to 2018) they do not: the realised-volatility MLP's tail is <span data-k="derived.sim2real.NIFTY50.hes_NIFTY50_mlprv_c10_s0.real_calib" data-f="d2"></span> against delta's <span data-k="derived.sim2real.NIFTY50.bs_delta.real_calib" data-f="d2"></span>. Section 7 traces this to a single day. The ablations below hold everything else fixed and change one thing at a time.</p>
+</div>
 <div class="wide"><div class="tbl-wrap" id="tbl-ablation"></div></div>
 
 <figure class="wide"><div class="fig"><div id="fig-train" class="plot"></div></div>
@@ -296,7 +398,10 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">7 &middot; Error analysis</div>
 <h2>Where the losses come from</h2>
-<div id="errors-prose"></div>
+<div id="errors-prose">
+<p>Before rankings, look at what drives P&amp;L at all. The scatter plots every real test episode. For every hedged strategy, final P&amp;L falls as realised volatility outruns the quote; for delta on NIFTY the correlation is <span data-k="errors.NIFTY50.strategies.bs_delta.corr_pnl_volratio" data-f="d2"></span>. That is the identity from section 4 holding on real data. Hedging does not remove the volatility bet you make when you sell an option. It isolates it.</p>
+<p>The worst episodes are the same for every strategy: options sold in the first half of March 2020, which lived through the COVID crash. That is where the networks earn most of their advantage. On the S&amp;P, delta's worst episode loses <span data-k="errors.SP500.strategies.bs_delta.worst.0.pnl" data-f="abs"></span> per 100 of notional and the Heston-trained GRU's worst loses <span data-k="errors.SP500.strategies.hes_SP500_gru_c10_s0.worst.0.pnl" data-f="abs"></span>. On NIFTY the gap is smaller, <span data-k="errors.NIFTY50.strategies.bs_delta.worst.0.pnl" data-f="abs"></span> against <span data-k="errors.NIFTY50.strategies.hes_NIFTY50_gru_c10_s0.worst.0.pnl" data-f="abs"></span>. Outside 2020, delta's worst NIFTY episodes were sold in late April 2024 and run through 4 June 2024, the day the general election result came out and the index fell about 6%.</p>
+</div>
 </div>
 
 <figure class="wide"><div class="fig">
@@ -310,6 +415,11 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 </figure>
 
 <div class="wide"><div class="tbl-wrap" id="tbl-worst"></div></div>
+<div class="prose" id="errors-prose-regimes">
+<h3>Where in the distribution the gain comes from</h3>
+<p>Split the simulated test episodes into five equal groups by how far realised volatility landed from the quote. In the calmest fifth the MLP's tail is worse than delta's, <span data-k="regimes.strategies.gbm_mlp_c10_s0.0.cvar95" data-f="d2"></span> against <span data-k="regimes.strategies.bs_delta.0.cvar95" data-f="d2"></span>. In the wildest fifth it is much better, <span data-k="regimes.strategies.gbm_mlp_c10_s0.4.cvar95" data-f="d2"></span> against <span data-k="regimes.strategies.bs_delta.4.cvar95" data-f="d2"></span>. This is the volatility-inflation trade from section 6 in plain sight: a small, certain cost in quiet months buys protection in violent ones. It is also why, on real data, the networks' advantage is concentrated in March 2020.</p>
+</div>
+<div class="wide"><div class="tbl-wrap" id="tbl-regimes"></div></div>
 
 <figure class="wide"><div class="fig">
   <div class="controls">
@@ -321,7 +431,19 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
   <div class="readout" id="ep-readout"></div></div>
   <figcaption><b>Replay any real episode.</b> Top: the index after the sale, rescaled to 100. Bottom: what each strategy held each day. Use the dropdown to jump to the worst episodes.</figcaption>
 </figure>
-<div class="prose" id="errors-prose-2"></div>
+<div class="prose" id="errors-prose-2">
+<h3>The one day the simulator never showed the networks</h3>
+<p>On NIFTY's calibration era the Heston-trained networks trail delta. <span data-k="derived.calib_net_share_0809" data-f="pct0"></span> of the realised-volatility MLP's worst 5% of windows were sold in 2008 or 2009, against <span data-k="derived.calib_delta_share_0809" data-f="pct0"></span> of delta's, and its single worst windows were sold in late April 2009. Those windows contain 18 May 2009, the first trading day after the general election result, when NIFTY rose <span data-k="derived.jump_pct" data-f="pct0"></span> in one session: the largest move in our data. The day before, the network held <span data-k="calib_era.jump_window.net_held" data-f="d2"></span> of the index where delta held <span data-k="calib_era.jump_window.delta_held" data-f="d2"></span>. The flatter, higher-volatility hedge that serves it well everywhere else leaves it short when an in-the-money option jumps, and that gap alone cost about <span data-k="derived.jump_cost" data-f="d2"></span> per 100 of notional on that window. Heston prices move continuously. A one-day jump of that size is practically impossible in the simulator, so the networks never learned to fear one. This is the clearest picture we have of what the simulator is missing, and it names the first thing we would add: jumps.</p>
+</div>
+<div class="prose">
+<h3>Four ways this result could mislead, checked one by one</h3>
+<div id="trust-prose">
+<p><b>Aggregation.</b> One average can hide where a gain comes from. We split the test episodes by volatility regime and read the worst real episodes one by one. The gain is concentrated in volatile months, and in the calmest months the MLP is worse than delta. We report both.</p>
+<p><b>The metric.</b> A strategy could improve CVaR by shifting the whole distribution, for instance by trading less and paying fewer fees. At zero cost that is impossible, and the martingale check confirms every mean is zero. With costs we report the mean, the fees and the standard deviation next to the tail, so a gain bought by changing the mean would be visible. And training on a quadratic loss instead of CVaR gives a clearly worse tail, so the metric we optimise is the one doing the work.</p>
+<p><b>Shortcuts.</b> A network could exploit information it would not have in practice. Every decision is computed from prices up to that day only, and a test changes every price after day 12 and checks that no earlier decision moves. The split is by time, the simulators were calibrated on data before 2019, and the test sets were scored once. On real data the networks see the quoted volatility, never the true one.</p>
+<p><b>Capacity and luck.</b> Two more seeds move the result by at most <span data-k="derived.seed_spread_ntb" data-f="d3"></span>; the width ablation shows the result does not hinge on network size; intervals are paired, and block-resampled on real data. Where an interval includes zero we say so, which is why we claim a significant lead over the best rule on real data for only <span data-k="derived.real_NIFTY50.n_sig_vs_rule" data-f="int"></span> network per index, and we pick that rule in the way that flatters it.</p>
+</div>
+</div>
 </section>
 
 <!-- ============================================================ 8 -->
@@ -329,7 +451,13 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">8 &middot; Limitations</div>
 <h2>What this study cannot tell you</h2>
-<div id="limits-prose"></div>
+<div id="limits-prose">
+<p><b>No option market data.</b> We quote volatility from the last 60 days of returns, while a real desk sells at implied volatility, which is usually higher. That shifts the level of P&amp;L for every strategy alike, so our claims are about how well each strategy controls the tail of a hedged position, not about whether selling options is profitable.</p>
+<p><b>No jumps in the simulator.</b> Heston moves continuously, and 18 May 2009 shows what that costs on real data. Real returns also show volatility clustering that decays more slowly than a one-factor model allows (section 2).</p>
+<p><b>One contract, one instrument, one kind of cost.</b> An at-the-money 30-day call, rebalanced daily, hedged with the index alone, with a proportional fee. No bid-ask dynamics, no market impact, and no second option to hedge gamma with. The findings may not carry over to out-of-the-money or longer-dated options.</p>
+<p><b>Short real history.</b> Seven years of overlapping monthly windows are few independent observations, and one episode, March 2020, dominates the real tail. Most comparisons against the best rule on real data are not statistically decisive; we say which ones are.</p>
+<p><b>A fixed training recipe.</b> Learning rate, schedule and the 1,500-step budget were set once and not searched. The seed and width ablations suggest the results are not fragile to these choices, but we did not test every one.</p>
+</div>
 </div>
 </section>
 
@@ -338,7 +466,11 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">9 &middot; Conclusion</div>
 <h2>What we take away</h2>
-<div id="conclusion-prose"></div>
+<div id="conclusion-prose">
+<p><b>Learning a hedge on the tail objective beats the rules where it was trained.</b> In simulation, at every cost from 5 to 50 bps, both networks beat the best rule, not just delta, with intervals that exclude zero, and the lead grows with cost.</p>
+<p><b>What the networks learned can be read and checked.</b> The MLP hedges like delta at a higher volatility: a margin that protects the tail even at zero cost, plus a cost adjustment in Leland's direction though not of Leland's form. A one-line rule built from that reading recovers most of its advantage. The band network learned a band that widens faster than the textbook cube root, as theory predicts for a hedge that can only be corrected once a day, and the tuned rules agree.</p>
+<p><b>On real markets the simulator decides the outcome.</b> Networks trained on our calibrated Heston simulator cut the tail loss of delta hedging by <span data-k="derived.real_hes_gain_min_all" data-f="pct0"></span> to <span data-k="derived.real_hes_gain_max_all" data-f="pct0"></span> on NIFTY 50 and S&amp;P 500 options sold from 2019 on, and lead the best rule by <span data-k="derived.real_SP500.best_net_vs_rule_pct" data-f="pct0"></span> (S&amp;P) and <span data-k="derived.real_NIFTY50.best_net_vs_rule_pct" data-f="pct0"></span> (NIFTY), though that lead is statistically clear for only one network per index. The same networks trained on plain GBM transfer much less well, and on the S&amp;P not measurably at all. Their clearest failure, a single <span data-k="derived.jump_pct" data-f="pct0"></span> jump in 2009, names the next step: jumps in the simulator, then implied volatility data, then an option as a second hedging instrument.</p>
+</div>
 </div>
 </section>
 
@@ -347,35 +479,69 @@ The network's inputs are scaled by the volatility quoted for <em>that</em> episo
 <div class="prose">
 <div class="sec-no">10 &middot; Reproduction steps</div>
 <h2>Rebuild every number on this page</h2>
-<p>Python 3.13 with NumPy, SciPy, pandas, PyTorch (CPU is enough) and requests. No GPU, no API key.</p>
-<pre><code>git clone https://github.com/REPO_OWNER/deep-hedging
+<p>Python 3.13 with NumPy, SciPy, pandas, PyTorch and requests. A CPU runs everything; a GPU only makes training faster. No API key.</p>
+<pre><code>git clone https://github.com/ParamTanna/deep-hedging
 cd deep-hedging
 pip install -r requirements.txt
 
 python src/controls.py               # ten correctness checks, all must pass
 python src/experiments.py prepare    # download data, quality report, calibration
 python src/experiments.py tune       # band width and WW gamma, on validation only
-python src/experiments.py train-all  # 25 policies, about 90 minutes on a laptop CPU
+python src/experiments.py train-all  # 25 policies; add DEVICE=cuda on a GPU
 python src/experiments.py evaluate   # every test number, with bootstrap intervals
 python src/analysis.py               # bands, scaling law, error analysis
 python src/export.py                 # writes docs/data/ for this page</code></pre>
-<p>Seeds are fixed throughout (validation 1001, test 2002, training runs 0, 1, 2), so reruns reproduce the same numbers up to floating point. The notebook <code>notebooks/deep_hedging.ipynb</code> walks through the same pipeline with the results inline. Raw price data is not redistributed in the repository; <code>prepare</code> downloads it. The episodes shown on this page are rescaled to 100 at each sale date.</p>
+<p>Seeds are fixed throughout (validation 1001, test 2002, training runs 0, 1, 2), so reruns reproduce the same numbers up to floating point. We trained the policies on a Colab T4 GPU in about an hour; a laptop CPU takes several hours. The notebook <code>notebooks/deep_hedging.ipynb</code> walks through the same pipeline with the results inline. Raw price data is not redistributed in the repository; <code>prepare</code> downloads it. The episodes shown on this page are rescaled to 100 at each sale date.</p>
 
 <h3>Use of AI tools</h3>
 <p id="ai-disclosure">We used Claude (Anthropic) as a coding and writing assistant throughout: for implementing and debugging the simulation, training and evaluation code, for checking derivations, and for drafting and editing the text of this page and the README. Every result was produced by code in this repository and checked against the ten correctness controls; the modelling decisions, including throwing away the first simulator, came out of examining the outputs. We are responsible for all of it and can explain any part.</p>
 
 <h3>References</h3>
-<ol style="font-size:16px">
-  <li>Black, F. and Scholes, M. (1973). The pricing of options and corporate liabilities. <i>Journal of Political Economy</i> 81(3).</li>
-  <li>Leland, H. E. (1985). Option pricing and replication with transactions costs. <i>Journal of Finance</i> 40(5).</li>
-  <li>Heston, S. L. (1993). A closed-form solution for options with stochastic volatility. <i>Review of Financial Studies</i> 6(2).</li>
-  <li>Whalley, A. E. and Wilmott, P. (1997). An asymptotic analysis of an optimal hedging model for option pricing with transaction costs. <i>Mathematical Finance</i> 7(3).</li>
-  <li>Rockafellar, R. T. and Uryasev, S. (2000). Optimization of conditional value-at-risk. <i>Journal of Risk</i> 2(3).</li>
-  <li>Lord, R., Koekkoek, R. and van Dijk, D. (2010). A comparison of biased simulation schemes for stochastic volatility models. <i>Quantitative Finance</i> 10(2).</li>
-  <li>Buehler, H., Gonon, L., Teichmann, J. and Wood, B. (2019). Deep hedging. <i>Quantitative Finance</i> 19(8).</li>
-  <li>Imaki, S., Imajo, K., Ito, K., Minami, K. and Nakagawa, K. (2021). No-transaction band network: a neural network architecture for efficient deep hedging. arXiv:2103.01775.</li>
-  <li>Ljung, G. M. and Box, G. E. P. (1978). On a measure of lack of fit in time series models. <i>Biometrika</i> 65(2).</li>
-  <li>Data: Yahoo Finance, daily history of ^NSEI and ^GSPC, retrieved November 2026.</li>
+<p class="ref-group"><b>The method</b></p>
+<ol start="1" style="font-size:16px">
+  <li>Buehler, H., Gonon, L., Teichmann, J. and Wood, B. (2019). Deep hedging. <i>Quantitative Finance</i> 19(8), 1271-1291. The whole approach: a network trained by backpropagating through a simulated P&amp;L, with a risk measure as the loss.</li>
+  <li>Imaki, S., Imajo, K., Ito, K., Minami, K. and Nakagawa, K. (2021). No-transaction band network: a neural network architecture for efficient deep hedging. arXiv:2103.01775. Our band network.</li>
+</ol>
+<p class="ref-group"><b>The baselines</b></p>
+<ol start="3" style="font-size:16px">
+  <li>Black, F. and Scholes, M. (1973). The pricing of options and corporate liabilities. <i>Journal of Political Economy</i> 81(3), 637-654. The premium and the delta hedge.</li>
+  <li>Leland, H. E. (1985). Option pricing and replication with transactions costs. <i>Journal of Finance</i> 40(5), 1283-1301. The cost-adjusted volatility rule.</li>
+  <li>Hodges, S. D. and Neuberger, A. (1989). Optimal replication of contingent claims under transaction costs. <i>Review of Futures Markets</i> 8(2), 222-239. The exponential-utility hedging problem whose answer is a no-trade band; the risk aversion in our Whalley-Wilmott rule comes from here.</li>
+  <li>Whalley, A. E. and Wilmott, P. (1997). An asymptotic analysis of an optimal hedging model for option pricing with transaction costs. <i>Mathematical Finance</i> 7(3), 307-324. The closed-form band width and its cube-root law.</li>
+</ol>
+<p class="ref-group"><b>The objective</b></p>
+<ol start="7" style="font-size:16px">
+  <li>Rockafellar, R. T. and Uryasev, S. (2000). Optimization of conditional value-at-risk. <i>Journal of Risk</i> 2(3), 21-41. CVaR written as a minimisation over a threshold, which is how the networks are trained.</li>
+</ol>
+<p class="ref-group"><b>The simulator</b></p>
+<ol start="8" style="font-size:16px">
+  <li>Heston, S. L. (1993). A closed-form solution for options with stochastic volatility with applications to bond and currency options. <i>Review of Financial Studies</i> 6(2), 327-343. The stochastic volatility model.</li>
+  <li>Feller, W. (1951). Two singular diffusion problems. <i>Annals of Mathematics</i> 54(1), 173-182. The condition under which the variance process stays away from zero.</li>
+  <li>Lord, R., Koekkoek, R. and van Dijk, D. (2010). A comparison of biased simulation schemes for stochastic volatility models. <i>Quantitative Finance</i> 10(2), 177-194. The full-truncation Euler scheme we simulate with.</li>
+  <li>McFadden, D. (1989). A method of simulated moments for estimation of discrete response models without numerical integration. <i>Econometrica</i> 57(5), 995-1026. Simulated method of moments.</li>
+  <li>Duffie, D. and Singleton, K. J. (1993). Simulated moments estimation of Markov models of asset prices. <i>Econometrica</i> 61(4), 929-952. With the previous entry, the method behind our first calibration, the one we rejected.</li>
+</ol>
+<p class="ref-group"><b>The data checks</b></p>
+<ol start="13" style="font-size:16px">
+  <li>Ljung, G. M. and Box, G. E. P. (1978). On a measure of lack of fit in time series models. <i>Biometrika</i> 65(2), 297-303. The test for volatility clustering.</li>
+  <li>Cont, R. (2001). Empirical properties of asset returns: stylized facts and statistical issues. <i>Quantitative Finance</i> 1(2), 223-236. Fat tails and volatility clustering as the facts a simulator should reproduce.</li>
+</ol>
+<p class="ref-group"><b>The evaluation</b></p>
+<ol start="15" style="font-size:16px">
+  <li>Boyle, P. P. and Emanuel, D. (1980). Discretely adjusted option hedges. <i>Journal of Financial Economics</i> 8(3), 259-282. Hedging error shrinks like the square root of the rebalancing interval; one of our controls checks this.</li>
+  <li>Efron, B. (1979). Bootstrap methods: another look at the jackknife. <i>Annals of Statistics</i> 7(1), 1-26. The bootstrap.</li>
+  <li>Künsch, H. R. (1989). The jackknife and the bootstrap for general stationary observations. <i>Annals of Statistics</i> 17(3), 1217-1241. The moving-block bootstrap we use on overlapping real windows.</li>
+</ol>
+<p class="ref-group"><b>Training the networks</b></p>
+<ol start="18" style="font-size:16px">
+  <li>Cho, K., van Merriënboer, B., Gulcehre, C., Bahdanau, D., Bougares, F., Schwenk, H. and Bengio, Y. (2014). Learning phrase representations using RNN encoder-decoder for statistical machine translation. <i>Proceedings of EMNLP 2014</i>, 1724-1734. The GRU.</li>
+  <li>Kingma, D. P. and Ba, J. (2015). Adam: a method for stochastic optimization. <i>ICLR 2015</i>. arXiv:1412.6980. The optimiser.</li>
+  <li>Loshchilov, I. and Hutter, F. (2017). SGDR: stochastic gradient descent with warm restarts. <i>ICLR 2017</i>. arXiv:1608.03983. The cosine learning-rate schedule.</li>
+  <li>Elfwing, S., Uchibe, E. and Doya, K. (2018). Sigmoid-weighted linear units for neural network function approximation in reinforcement learning. <i>Neural Networks</i> 107, 3-11. The SiLU activation.</li>
+</ol>
+<p class="ref-group"><b>Data</b></p>
+<ol start="22" style="font-size:16px">
+  <li>Yahoo Finance daily history for ^NSEI and ^GSPC, retrieved November 2026.</li>
 </ol>
 </div>
 </section>
@@ -386,7 +552,9 @@ python src/export.py                 # writes docs/data/ for this page</code></p
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/contrib/auto-render.min.js"></script>
+<script src="lab.js"></script>
 <script src="tables.js"></script>
 <script src="app.js"></script>
+<script src="play.js"></script>
 </body>
 </html>
