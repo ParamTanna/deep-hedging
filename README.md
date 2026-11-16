@@ -200,6 +200,8 @@ python src/export.py                 # data files for the website in docs/data/
 python src/figures.py                # static figures in results/figures/
 ```
 
+**Data access.** `prepare` downloads daily NIFTY 50 (`^NSEI`) and S&P 500 (`^GSPC`) history from Yahoo Finance's public chart endpoint (`src/data.py`); no account, API key or login is needed. The raw price files are not redistributed here (`data/raw/` is ignored by git); everything derived from them that the analysis needs, such as the calibrations, the training volatility pool and the result files, is committed.
+
 The trained policies are committed in `results/models/`, so `evaluate`, `analysis`, `export` and `figures` run without retraining. Seeds are fixed everywhere (validation 1001, test 2002, training 0, 1, 2). `train-all` accepts `WORKERS` and `THREADS` environment variables, and `DEVICE=cuda` trains on a GPU. We trained the submitted policies on a Colab T4 GPU with `DEVICE=cuda WORKERS=2 THREADS=1`, which took about an hour (116 minutes of training split across two jobs running side by side); on a laptop CPU expect several hours. Every checkpoint records the hardware it was trained on.
 
 ## Repository map
