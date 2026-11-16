@@ -494,7 +494,7 @@ python src/export.py                 # writes docs/data/ for this page</code></p
 <p>Seeds are fixed throughout (validation 1001, test 2002, training runs 0, 1, 2), so reruns reproduce the same numbers up to floating point. We trained the policies on a Colab T4 GPU in about an hour; a laptop CPU takes several hours. The notebook <code>notebooks/deep_hedging.ipynb</code> walks through the same pipeline with the results inline. Raw price data is not redistributed in the repository; <code>prepare</code> downloads it. The episodes shown on this page are rescaled to 100 at each sale date.</p>
 
 <h3>Use of AI tools</h3>
-<p id="ai-disclosure">We used Claude (Anthropic) as a coding and writing assistant throughout: for implementing and debugging the simulation, training and evaluation code, for checking derivations, and for drafting and editing the text of this page and the README. Every result was produced by code in this repository and checked against the ten correctness controls; the modelling decisions, including throwing away the first simulator, came out of examining the outputs. We are responsible for all of it and can explain any part.</p>
+<p id="ai-disclosure">We used Claude (Anthropic) to debug the simulation, evaluate code, to check derivations, and to build the interactive website. Every number in this repository comes from code in this repository, every component passes the correctness controls, and we checked the outputs ourselves. Decisions such as discarding the first Heston calibration came from examining the results. We take responsibility for all of it and can explain any part.</p>
 
 <h3>References</h3>
 <p class="ref-group"><b>The method</b></p>
