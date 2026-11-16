@@ -65,12 +65,12 @@ function baseLayout(extra) {
   const ink = css("--ink"), ink3 = css("--ink-3"), rule = css("--rule");
   return Object.assign({
     paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "IBM Plex Sans, system-ui, sans-serif", size: 12, color: ink },
+    font: { family: "Inter, system-ui, sans-serif", size: 13, color: ink },
     margin: { l: 62, r: 18, t: 18, b: 52 },
     xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickfont: { color: ink3 } },
     yaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickfont: { color: ink3 } },
     legend: { orientation: "h", y: -0.22, font: { size: 12 } },
-    hoverlabel: { font: { family: "IBM Plex Sans, sans-serif" } },
+    hoverlabel: { font: { family: "Inter, sans-serif" } },
   }, extra || {});
 }
 const CFG = { displaylogo: false, responsive: true,
@@ -493,18 +493,11 @@ function fillWorst() {
   const btn = document.getElementById("theme-btn");
   const saved = (() => { try { return localStorage.getItem("theme"); } catch (e) { return null; } })();
   if (saved) document.documentElement.dataset.theme = saved;
-  const isDark = () => {
-    const t = document.documentElement.dataset.theme;
-    if (t) return t === "dark";
-    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  };
-  const label = () => { if (btn) btn.textContent = isDark() ? "Light" : "Dark"; };
-  label();
   btn?.addEventListener("click", () => {
-    const next = isDark() ? "light" : "dark";
+    const dark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() === "#15161a";
+    const next = dark ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     try { localStorage.setItem("theme", next); } catch (e) {}
-    label();
     if (D.site) renderAll();
   });
   const links = [...document.querySelectorAll(".nav a")];

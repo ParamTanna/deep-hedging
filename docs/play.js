@@ -93,7 +93,7 @@
     const lo = Math.min(...G.S.slice(0, shown + 1), 97), hi = Math.max(...G.S.slice(0, shown + 1), 103);
     Plotly.react("fig-game", tr, {
       paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-      font: { family: "IBM Plex Sans, sans-serif", size: 12, color: css("--ink") },
+      font: { family: "Inter, sans-serif", size: 12.5, color: css("--ink") },
       grid: { rows: 2, columns: 1, pattern: "independent", roworder: "top to bottom" },
       xaxis: { range: [-0.5, 30.5], gridcolor: css("--rule"), showticklabels: false },
       yaxis: { title: "index", range: [lo - 1, hi + 1], gridcolor: css("--rule") },
@@ -143,7 +143,7 @@
       line: { color: cols[j], width: 2, dash: "dash" } }));
     Plotly.react("fig-lab", tr, {
       barmode: "overlay", paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-      font: { family: "IBM Plex Sans, sans-serif", size: 12, color: css("--ink") },
+      font: { family: "Inter, sans-serif", size: 12.5, color: css("--ink") },
       xaxis: { title: "P&L per 100 notional (dashed lines: CVaR95, the mean of the worst 5%)", range: [lo, hi], gridcolor: css("--rule") },
       yaxis: { title: "density", gridcolor: css("--rule") }, shapes,
       margin: { l: 56, r: 12, t: 8, b: 48 }, legend: { orientation: "h", y: -0.2 },
